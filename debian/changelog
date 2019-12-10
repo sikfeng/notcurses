@@ -1,6 +1,6 @@
 notcurses (0.9.0-1) UNRELEASED; urgency=medium
 
-  * 
+  * Add dep on libpango1.0-dev
 
  -- Nick Black <dankamongmen@gmail.com>  Thu, 05 Dec 2019 04:37:32 -0500
 

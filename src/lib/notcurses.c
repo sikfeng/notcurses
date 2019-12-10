@@ -13,6 +13,7 @@
 #include <sys/poll.h>
 #include <stdatomic.h>
 #include <sys/ioctl.h>
+#include <pango/pango.h>
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
 #include <libavutil/pixdesc.h>
@@ -667,12 +668,14 @@ notcurses* notcurses_init(const notcurses_options* opts){
          " avformat %u.%u.%u\n"
          " avutil %u.%u.%u\n"
          " swscale %u.%u.%u\n"
+         " pangocairo %s\n"
          " %d rows, %d columns (%zub), %d colors (%s)\n",
          notcurses_version(), __VERSION__,
          curses_version(), LIBAVFORMAT_VERSION_MAJOR,
          LIBAVFORMAT_VERSION_MINOR, LIBAVFORMAT_VERSION_MICRO,
          LIBAVUTIL_VERSION_MAJOR, LIBAVUTIL_VERSION_MINOR, LIBAVUTIL_VERSION_MICRO,
          LIBSWSCALE_VERSION_MAJOR, LIBSWSCALE_VERSION_MINOR, LIBSWSCALE_VERSION_MICRO,
+         pango_version_string(),
          ret->top->leny, ret->top->lenx,
          ret->top->lenx * ret->top->leny * sizeof(*ret->top->fb),
          ret->colors, ret->RGBflag ? "direct" : "palette");

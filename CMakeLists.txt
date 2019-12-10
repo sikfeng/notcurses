@@ -19,7 +19,7 @@ pkg_check_modules(TERMINFO REQUIRED tinfo>=6.1)
 pkg_check_modules(AVUTIL REQUIRED libavutil>=56.0)
 pkg_check_modules(AVFORMAT REQUIRED libavformat>=57.0)
 pkg_check_modules(SWSCALE REQUIRED libswscale>=5.0)
-pkg_check_modules(PANGO REQUIRED pango>=1.42.3)
+pkg_check_modules(PANGO REQUIRED pangocairo>=1.42.3)
 find_library(LIBRT rt)
 
 file(GLOB LIBSRCS CONFIGURE_DEPENDS src/lib/*.c)
@@ -28,21 +28,24 @@ target_include_directories(notcurses
   PRIVATE
     include
     "${PROJECT_BINARY_DIR}/include"
-    "${TERMINFO_INCLUDE_DIR}"
-    "${AVFORMAT_INCLUDE_DIR}"
-    "${SWSCALE_INCLUDE_DIR}"
+    "${TERMINFO_INCLUDE_DIRS}"
+    "${AVFORMAT_INCLUDE_DIRS}"
+    "${SWSCALE_INCLUDE_DIRS}"
+    "${PANGO_INCLUDE_DIRS}"
 )
 target_link_libraries(notcurses
   PRIVATE
     "${TERMINFO_LIBRARIES}"
     "${AVFORMAT_LIBRARIES}"
     "${SWSCALE_LIBRARIES}"
+    "${PANGO_LIBRARIES}"
     "${LIBRT}"
 )
 target_link_directories(notcurses
   PRIVATE
     "${AVFORMAT_LIBRARY_DIRS}"
     "${SWSCALE_LIBRARY_DIRS}"
+    "${PANGO_LIBRARY_DIRS}"
 )
 set_target_properties(notcurses PROPERTIES
   PUBLIC_HEADER "include/notcurses.h"

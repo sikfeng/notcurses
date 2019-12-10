@@ -13,3 +13,7 @@ int fonts_init(void){
   // FIXME
   return 0;
 }
+
+int fonts_stop(void){
+  return 0; // FIXME
+}

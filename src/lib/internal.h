@@ -129,6 +129,9 @@ int prep_special_keys(notcurses* nc);
 // free up the input escapes trie
 void input_free_esctrie(struct esctrie** trie);
 
+int fonts_init(void);
+int fonts_stop(void);
+
 #ifdef __cplusplus
 }
 #endif

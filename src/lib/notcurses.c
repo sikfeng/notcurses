@@ -617,6 +617,9 @@ notcurses* notcurses_init(const notcurses_options* opts){
     free(ret);
     return NULL;
   }
+  if(fonts_init()){
+    fprintf(stderr, "Couldn't initialize fonts, fonts will be unavailable\n");
+  }
   if(tcgetattr(ret->ttyfd, &ret->tpreserved)){
     fprintf(stderr, "Couldn't preserve terminal state for %d (%s)\n",
             ret->ttyfd, strerror(errno));

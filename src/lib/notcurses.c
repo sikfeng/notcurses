@@ -940,20 +940,21 @@ term_setstyles(const notcurses* nc, FILE* out, uint32_t* curattr, const cell* c)
     return 0; // happy agreement, change nothing
   }
   int ret = 0;
-  ret |= term_setstyle(out, *curattr, cellattr, CELL_STYLE_ITALIC, nc->italics, nc->italoff);
   /*if(nc->sgr){
-    if(term_emit("sgr", tiparm(nc->sgr, cellattr & CELL_STYLE_STANDOUT,
+    if(term_emit("sgr", tparm(nc->sgr,  cellattr & CELL_STYLE_STANDOUT,
                                         cellattr & CELL_STYLE_UNDERLINE,
                                         cellattr & CELL_STYLE_REVERSE,
                                         cellattr & CELL_STYLE_BLINK,
                                         cellattr & CELL_STYLE_DIM,
                                         cellattr & CELL_STYLE_BOLD,
                                         cellattr & CELL_STYLE_INVIS,
-                                        cellattr & CELL_STYLE_PROTECT, 0),
+                                        cellattr & CELL_STYLE_PROTECT,
+                                        0, 0, 0, 0, 0, 0, 0, 0, 0),
                                         out, false) < 0){
       ret = -1;
     }
   }*/
+  ret |= term_setstyle(out, *curattr, cellattr, CELL_STYLE_ITALIC, nc->italics, nc->italoff);
   *curattr = cellattr;
   return ret;
 }

@@ -81,6 +81,7 @@ you should by all means use that fine library.
 * CMake 3.13.0+
 * From NCURSES: terminfo 6.1+
 * From FFMpeg: libswscale 5.0+, libavformat 57.0+, libavutil 56.0+
+* Pango 1.42.3+
 
 ## Use
 

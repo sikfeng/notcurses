@@ -80,7 +80,9 @@ AVFrame* ncvisual_decode(struct ncvisual* nc, int* averr){
         av_packet_unref(nc->packet);
       }
       if((*averr = av_read_frame(nc->fmtctx, nc->packet)) < 0){
-        fprintf(stderr, "Error reading frame info (%s)\n", av_err2str(*averr));
+        if(*averr != AVERROR_EOF){
+          fprintf(stderr, "Error reading frame info (%s)\n", av_err2str(*averr));
+        }
         return NULL;
       }
       unref = true;

@@ -239,18 +239,18 @@ free_plane(ncplane* p){
 }
 
 static int
-term_emit(const char* seq, FILE* out, bool flush){
+term_emit(const char* name, const char* seq, FILE* out, bool flush){
   int ret = fprintf(out, "%s", seq);
   if(ret < 0){
-    fprintf(stderr, "Error emitting %zub sequence (%s)\n", strlen(seq), strerror(errno));
+    fprintf(stderr, "Error emitting %zub %s escape (%s)\n", strlen(seq), name, strerror(errno));
     return -1;
   }
   if((size_t)ret != strlen(seq)){
-    fprintf(stderr, "Short write (%db) for %zub sequence\n", ret, strlen(seq));
+    fprintf(stderr, "Short write (%db) for %zub %s sequence\n", ret, strlen(seq), name);
     return -1;
   }
   if(flush && fflush(out)){
-    fprintf(stderr, "Error flushing after %db sequence (%s)\n", ret, strerror(errno));
+    fprintf(stderr, "Error flushing after %db %s sequence (%s)\n", ret, name, strerror(errno));
     return -1;
   }
   return 0;
@@ -516,6 +516,8 @@ interrogate_terminfo(notcurses* nc, const notcurses_options* opts){
   term_verify_seq(&nc->bold, "bold");
   term_verify_seq(&nc->italics, "sitm");
   term_verify_seq(&nc->italoff, "ritm");
+  term_verify_seq(&nc->sgr, "sgr");
+  term_verify_seq(&nc->sgr0, "sgr0");
   term_verify_seq(&nc->op, "op");
   term_verify_seq(&nc->clearscr, "clear");
   term_verify_seq(&nc->cleareol, "el");
@@ -553,12 +555,8 @@ interrogate_terminfo(notcurses* nc, const notcurses_options* opts){
   // Not all terminals support setting the fore/background independently
   term_verify_seq(&nc->setaf, "setaf");
   term_verify_seq(&nc->setab, "setab");
-  if(!opts->pass_through_esc){
-    term_verify_seq(&nc->smkx, "smkx");
-    term_verify_seq(&nc->rmkx, "rmkx");
-  }else{
-    nc->smkx = nc->rmkx = NULL;
-  }
+  term_verify_seq(&nc->smkx, "smkx");
+  term_verify_seq(&nc->rmkx, "rmkx");
   // Neither of these is supported on e.g. the "linux" virtual console.
   if(!opts->inhibit_alternate_screen){
     term_verify_seq(&nc->smcup, "smcup");
@@ -649,19 +647,19 @@ notcurses* notcurses_init(const notcurses_options* opts){
   if((ret->stdscr = create_initial_ncplane(ret)) == NULL){
     goto err;
   }
-  if(ret->civis && term_emit(ret->civis, ret->ttyfp, false)){
+  if(ret->civis && term_emit("civis", ret->civis, ret->ttyfp, false)){
     free_plane(ret->top);
     goto err;
   }
-  if(ret->smkx && term_emit(ret->smkx, ret->ttyfp, false)){
+  if(ret->smkx && term_emit("smkx", ret->smkx, ret->ttyfp, false)){
     free_plane(ret->top);
     goto err;
   }
-  if(ret->smcup && term_emit(ret->smcup, ret->ttyfp, false)){
+  if(ret->smcup && term_emit("smcup", ret->smcup, ret->ttyfp, false)){
     free_plane(ret->top);
     goto err;
   }
-  // term_emit(ret->clear, ret->ttyfp, false);
+  // term_emit("clear", ret->clear, ret->ttyfp, false);
   fprintf(ret->ttyfp, "\n"
          " notcurses %s by nick black\n"
          " compiled with gcc-%s\n"
@@ -700,21 +698,27 @@ int notcurses_stop(notcurses* nc){
   int ret = 0;
   if(nc){
     drop_signals(nc);
-    if(nc->rmcup && term_emit(nc->rmcup, nc->ttyfp, true)){
+    if(nc->rmcup && term_emit("rmcup", nc->rmcup, nc->ttyfp, true)){
       ret = -1;
     }
-    if(nc->cnorm && term_emit(nc->cnorm, nc->ttyfp, true)){
+    if(nc->cnorm && term_emit("cnorm", nc->cnorm, nc->ttyfp, true)){
+      ret = -1;
+    }
+    if(nc->op && term_emit("op", nc->op, nc->ttyfp, true)){
+      ret = -1;
+    }
+    if(nc->sgr0 && term_emit("sgr0", nc->sgr0, nc->ttyfp, true)){
       ret = -1;
     }
     ret |= tcsetattr(nc->ttyfd, TCSANOW, &nc->tpreserved);
     if(nc->stats.renders){
       double avg = nc->stats.render_ns / (double)nc->stats.renders;
-      fprintf(stderr, "%ju renders, %.03gs total (%.03gs min, %.03gs max, %.02gs avg)\n",
+      fprintf(stderr, "%ju renders, %.03gs total (%.03gs min, %.03gs max, %.02gs avg %.1f fps)\n",
               nc->stats.renders,
               nc->stats.render_ns / 1000000000.0,
               nc->stats.render_min_ns / 1000000000.0,
               nc->stats.render_max_ns / 1000000000.0,
-              avg / NANOSECS_IN_SEC);
+              avg / NANOSECS_IN_SEC, NANOSECS_IN_SEC / avg);
       avg = nc->stats.render_bytes / (double)nc->stats.renders;
       fprintf(stderr, "%.03fKB total (%.03fKB min, %.03fKB max, %.02fKB avg)\n",
               nc->stats.render_bytes / 1024.0,
@@ -914,11 +918,11 @@ term_setstyle(FILE* out, unsigned cur, unsigned targ, unsigned stylebit,
   if(curon != targon){
     if(targon){
       if(ton){
-        ret = term_emit(ton, out, false);
+        ret = term_emit("ton", ton, out, false);
       }
     }else{
       if(toff){ // how did this happen? we can turn it on, but not off?
-        ret = term_emit(toff, out, false);
+        ret = term_emit("toff", toff, out, false);
       }
     }
   }
@@ -937,10 +941,19 @@ term_setstyles(const notcurses* nc, FILE* out, uint32_t* curattr, const cell* c)
   }
   int ret = 0;
   ret |= term_setstyle(out, *curattr, cellattr, CELL_STYLE_ITALIC, nc->italics, nc->italoff);
-  /*ret |= term_setstyle(out, curattr, cellattr, CELL_STYLE_BOLD, nc->bold, nc->boldoff);
-  ret |= term_setstyle(out, curattr, cellattr, CELL_STYLE_UNDERLINE, nc->uline, nc->ulineoff);
-  ret |= term_setstyle(out, curattr, cellattr, CELL_STYLE_BLINK, nc->blink, nc->blinkoff);*/
-  // FIXME a few others
+  /*if(nc->sgr){
+    if(term_emit("sgr", tiparm(nc->sgr, cellattr & CELL_STYLE_STANDOUT,
+                                        cellattr & CELL_STYLE_UNDERLINE,
+                                        cellattr & CELL_STYLE_REVERSE,
+                                        cellattr & CELL_STYLE_BLINK,
+                                        cellattr & CELL_STYLE_DIM,
+                                        cellattr & CELL_STYLE_BOLD,
+                                        cellattr & CELL_STYLE_INVIS,
+                                        cellattr & CELL_STYLE_PROTECT, 0),
+                                        out, false) < 0){
+      ret = -1;
+    }
+  }*/
   *curattr = cellattr;
   return ret;
 }
@@ -1105,7 +1118,7 @@ notcurses_render_internal(notcurses* nc){
   for(y = 0 ; y < nc->stdscr->leny ; ++y){
     // move to the beginning of the line, in case our accounting was befouled
     // by wider- (or narrower-) than-reported characters
-    term_emit(tiparm(nc->cup, y, 0), out, false);
+    term_emit("cup", tiparm(nc->cup, y, 0), out, false);
     for(x = 0 ; x < nc->stdscr->lenx ; ++x){
       unsigned r, g, b, br, bg, bb;
       ncplane* p = nc->top;
@@ -1122,7 +1135,7 @@ notcurses_render_internal(notcurses* nc){
       if(cell_fg_default_p(c) || cell_bg_default_p(c)){
         if(!defaultelidable){
           ++nc->stats.defaultemissions;
-          term_emit(nc->op, out, false);
+          term_emit("op", nc->op, out, false);
         }else{
           ++nc->stats.defaultelisions;
         }

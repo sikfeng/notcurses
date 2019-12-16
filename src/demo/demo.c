@@ -9,7 +9,7 @@
 #include <notcurses.h>
 #include "demo.h"
 
-static const char DEFAULT_DEMO[] = "imlbgswuvpo";
+static const char DEFAULT_DEMO[] = "imlubgswvpo";
 
 int timespec_subtract(struct timespec *result, const struct timespec *time0,
                       struct timespec *time1){
@@ -69,10 +69,10 @@ intro(struct notcurses* nc){
   cell_init(&c);
   const char* cstr = "Δ";
   cell_load(ncp, &c, cstr);
-  cell_set_fg(&c, 200, 0, 200);
+  cell_set_fg_rgb(&c, 200, 0, 200);
   int ys = 200 / (rows - 2);
   for(y = 5 ; y < rows - 6 ; ++y){
-    cell_set_bg(&c, 0, y * ys  , 0);
+    cell_set_bg_rgb(&c, 0, y * ys  , 0);
     for(x = 5 ; x < cols - 6 ; ++x){
       if(ncplane_cursor_move_yx(ncp, y, x)){
         return -1;
@@ -84,8 +84,8 @@ intro(struct notcurses* nc){
   }
   cell_release(ncp, &c);
   uint64_t channels = 0;
-  notcurses_fg_prep(&channels, 90, 0, 90);
-  notcurses_bg_prep(&channels, 0, 0, 180);
+  channels_set_fg_rgb(&channels, 90, 0, 90);
+  channels_set_bg_rgb(&channels, 0, 0, 180);
   if(ncplane_cursor_move_yx(ncp, 4, 4)){
     return -1;
   }
@@ -100,30 +100,17 @@ intro(struct notcurses* nc){
   if(ncplane_set_bg_rgb(ncp, 0, 40, 0)){
     return -1;
   }
-  if(ncplane_cursor_move_yx(ncp, rows / 2 - 2, (cols - strlen(s1) + 4) / 2)){
+  if(ncplane_putstr_aligned(ncp, rows / 2 - 2, s1, NCALIGN_CENTER) != (int)strlen(s1)){
     return -1;
   }
-  if(ncplane_putstr(ncp, s1) != (int)strlen(s1)){
+  ncplane_styles_on(ncp, CELL_STYLE_ITALIC | CELL_STYLE_BOLD);
+  if(ncplane_putstr_aligned(ncp, rows / 2, str, NCALIGN_CENTER) != (int)strlen(str)){
     return -1;
   }
-  if(ncplane_cursor_move_yx(ncp, rows / 2, (cols - strlen(str) + 4) / 2)){
-    return -1;
-  }
-  ncplane_styles_on(ncp, CELL_STYLE_ITALIC);
-  if(ncplane_putstr(ncp, str) != (int)strlen(str)){
-    return -1;
-  }
-  ncplane_styles_off(ncp, CELL_STYLE_ITALIC);
+  ncplane_styles_off(ncp, CELL_STYLE_ITALIC | CELL_STYLE_BOLD);
   const wchar_t wstr[] = L"▏▁ ▂ ▃ ▄ ▅ ▆ ▇ █ █ ▇ ▆ ▅ ▄ ▃ ▂ ▁▕";
-  char mbstr[128];
-  if(wcstombs(mbstr, wstr, sizeof(mbstr)) <= 0){
-    return -1;
-  }
-  if(ncplane_cursor_move_yx(ncp, rows / 2 - 5, (cols - wcslen(wstr) + 4) / 2)){
-    return -1;
-  }
-  if(ncplane_putstr(ncp, mbstr) != (int)strlen(mbstr)){
-    return -1;
+  if(ncplane_putwstr_aligned(ncp, rows / 2 - 5, wstr, NCALIGN_CENTER) != (int)wcslen(wstr)){
+    // return -1;
   }
   if(notcurses_render(nc)){
     return -1;
@@ -170,7 +157,6 @@ static const char*
 handle_opts(int argc, char** argv, notcurses_options* opts){
   int c;
   memset(opts, 0, sizeof(*opts));
-  opts->outfp = stdout;
   while((c = getopt(argc, argv, "hkd:f:")) != EOF){
     switch(c){
       case 'h':
@@ -223,7 +209,7 @@ int main(int argc, char** argv){
     }
     demos = DEFAULT_DEMO;
   }
-  if((nc = notcurses_init(&nopts)) == NULL){
+  if((nc = notcurses_init(&nopts, stdout)) == NULL){
     return EXIT_FAILURE;
   }
   if((ncp = notcurses_stdplane(nc)) == NULL){

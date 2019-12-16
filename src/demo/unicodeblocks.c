@@ -6,32 +6,15 @@
 #include <string.h>
 #include "demo.h"
 
-// "🍺🚬🌿💉💊🔫💣🤜🤛🐌🐍🐎🐑🐒🐔🐗🐘🐙🐚🐛🐜🐝🐞🐟🐠🐡🐢🐣🐤🐥🐦🐧🐨🐩🐫🐬🐭🐮🐯🐰🐱🐲🐳🐴🐵🐶🐷🐸🐹🐺🐻🐼🦉🐊🐸🦕🦖🐬🐙🦂🦠🦀",
-
 // show unicode blocks. a block is always a multiple of 16 codepoints.
 #define BLOCKSIZE 512 // show this many per page
 #define CHUNKSIZE 32  // show this many per line
 
 static int
-hook_block(struct notcurses* nc, struct ncplane* nn, const struct timespec* subdelay){
-  uint64_t ns = timespec_to_ns(subdelay);
-  int dimx;
-  ncplane_dim_yx(nn, NULL, &dimx);
-  int y, x;
-  ncplane_yx(nn, &y, &x);
-  struct timespec iterts;
-  ns_to_timespec(ns / x, &iterts);
-  int newx;
-  for(newx = x - 1 ; newx >= -dimx ; --newx){
-    if(notcurses_render(nc)){
-      ncplane_destroy(nn);
-      return -1;
-    }
-    nanosleep(&iterts, NULL); // FIXME adaptive!
-    ncplane_move_yx(nn, y, newx);
-  }
+fade_block(struct ncplane* nn, const struct timespec* subdelay){
+  int ret = ncplane_fadein(nn, subdelay);
   ncplane_destroy(nn);
-  return 0;
+  return ret;
 }
 
 static int
@@ -40,8 +23,18 @@ draw_block(struct ncplane* nn, uint32_t blockstart){
   cell ll = CELL_TRIVIAL_INITIALIZER, lr = CELL_TRIVIAL_INITIALIZER;
   cell hl = CELL_TRIVIAL_INITIALIZER, vl = CELL_TRIVIAL_INITIALIZER;
   cells_rounded_box(nn, 0, 0, &ul, &ur, &ll, &lr, &hl, &vl);
-  cell_set_bg(&hl, 0, 0, 0);
-  cell_set_bg(&vl, 0, 0, 0);
+  cell_set_bg_alpha(&ul, CELL_ALPHA_TRANS);
+  cell_set_bg_alpha(&ur, CELL_ALPHA_TRANS);
+  cell_set_bg_alpha(&ll, CELL_ALPHA_TRANS);
+  cell_set_bg_alpha(&lr, CELL_ALPHA_TRANS);
+  cell_set_fg_rgb(&ll, 255, 255, 255);
+  cell_set_fg_rgb(&lr, 255, 255, 255);
+  cell_set_fg_rgb(&ul, 255, 255, 255);
+  cell_set_fg_rgb(&ur, 255, 255, 255);
+  cell_set_fg_rgb(&hl, 255, 255, 255);
+  cell_set_fg_rgb(&vl, 255, 255, 255);
+  cell_set_bg_rgb(&hl, 0, 0, 0);
+  cell_set_bg_rgb(&vl, 0, 0, 0);
   if(ncplane_box_sized(nn, &ul, &ur, &ll, &lr, &hl, &vl,
                   BLOCKSIZE / CHUNKSIZE + 2,
                   (CHUNKSIZE * 2) + 2, 0)){
@@ -82,8 +75,8 @@ draw_block(struct ncplane* nn, uint32_t blockstart){
       if(cell_load(nn, &c, utf8arr) < 0){ // FIXME check full len was eaten?
         return -1;;
       }
-      cell_set_fg(&c, 0xad + z * 2, 0xd8, 0xe6 - z * 2);
-      cell_set_bg(&c, 8 * chunk, 8 * chunk + z, 8 * chunk);
+      cell_set_fg_rgb(&c, 0xad + z * 2, 0xd8, 0xe6 - z * 2);
+      cell_set_bg_rgb(&c, 8 * chunk, 8 * chunk + z, 8 * chunk);
       if(ncplane_putc(nn, &c) < 0){
         return -1;
       }
@@ -193,10 +186,7 @@ int unicodeblocks_demo(struct notcurses* nc){
     if(ncplane_printf(n, "Unicode points %05x–%05x", blockstart, blockstart + BLOCKSIZE) <= 0){
       return -1;
     }
-    int xstart = maxx - 1;
-    if(ncplane_cursor_move_yx(n, 3, xstart)){
-      return -1;
-    }
+    int xstart = (maxx - ((CHUNKSIZE * 2) + 3)) / 2;
     struct ncplane* nn;
     if((nn = notcurses_newplane(nc, BLOCKSIZE / CHUNKSIZE + 2, (CHUNKSIZE * 2) + 2, 3, xstart, NULL)) == NULL){
       return -1;
@@ -217,7 +207,7 @@ int unicodeblocks_demo(struct notcurses* nc){
     if(ncplane_printf(n, "%s", description) <= 0){
       return -1;
     }
-    if(hook_block(nc, nn, &subdelay)){ // destroys nn
+    if(fade_block(nn, &subdelay)){ // destroys nn
       return -1;
     }
     // for a 32-bit wchar_t, we would want up through 24 bits of block ID. but

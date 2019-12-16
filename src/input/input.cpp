@@ -39,6 +39,40 @@ const char* nckeystr(wchar_t spkey){
     case NCKEY_F10:     return "F10";
     case NCKEY_F11:     return "F11";
     case NCKEY_F12:     return "F12";
+    case NCKEY_F13:     return "F13";
+    case NCKEY_F14:     return "F14";
+    case NCKEY_F15:     return "F15";
+    case NCKEY_F16:     return "F16";
+    case NCKEY_F17:     return "F17";
+    case NCKEY_F18:     return "F18";
+    case NCKEY_F19:     return "F19";
+    case NCKEY_F20:     return "F20";
+    case NCKEY_F21:     return "F21";
+    case NCKEY_F22:     return "F22";
+    case NCKEY_F23:     return "F23";
+    case NCKEY_F24:     return "F24";
+    case NCKEY_F25:     return "F25";
+    case NCKEY_F26:     return "F26";
+    case NCKEY_F27:     return "F27";
+    case NCKEY_F28:     return "F28";
+    case NCKEY_F29:     return "F29";
+    case NCKEY_F30:     return "F30";
+    case NCKEY_BACKSPACE: return "backspace";
+    case NCKEY_CENTER:  return "center";
+    case NCKEY_ENTER:   return "enter";
+    case NCKEY_CLS:     return "clear";
+    case NCKEY_DLEFT:   return "down+left";
+    case NCKEY_DRIGHT:  return "down+right";
+    case NCKEY_ULEFT:   return "up+left";
+    case NCKEY_URIGHT:  return "up+right";
+    case NCKEY_BEGIN:   return "begin";
+    case NCKEY_CANCEL:  return "cancel";
+    case NCKEY_CLOSE:   return "close";
+    case NCKEY_COMMAND: return "command";
+    case NCKEY_COPY:    return "copy";
+    case NCKEY_EXIT:    return "exit";
+    case NCKEY_PRINT:   return "print";
+    case NCKEY_REFRESH: return "refresh";
     default:            return "unknown";
   }
 }
@@ -56,8 +90,7 @@ int main(void){
     return EXIT_FAILURE;
   }
   notcurses_options opts{};
-  opts.outfp = stdout;
-  if((nc = notcurses_init(&opts)) == nullptr){
+  if((nc = notcurses_init(&opts, stdout)) == nullptr){
     return EXIT_FAILURE;;
   }
   struct ncplane* n = notcurses_stdplane(nc);
@@ -66,7 +99,7 @@ int main(void){
     notcurses_stop(nc);
     return EXIT_FAILURE;
   }
-  ncplane_bg_default(n);
+  ncplane_set_bg_default(n);
   int y = 1;
   std::deque<wchar_t> cells;
   wchar_t r;

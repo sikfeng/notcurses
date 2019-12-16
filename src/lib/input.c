@@ -129,8 +129,8 @@ handle_getc(notcurses* nc, int kpress){
     }
     // FIXME ungetc on failure! walk trie backwards or something
   }
-  if(kpress == 0x04){ // ctrl-d, treated as EOF
-    return (wchar_t)-1;
+  if(kpress == 0x7f){ // ASCII del, treated as backspace
+    return NCKEY_BACKSPACE;
   }
   if(kpress < 0x80){
     return kpress;
@@ -163,6 +163,11 @@ block_on_input(FILE* fp, const struct timespec* ts, sigset_t* sigmask){
     .events = POLLIN | POLLRDHUP,
     .revents = 0,
   };
+  sigset_t scratchmask;
+  if(!sigmask){
+    sigemptyset(&scratchmask);
+    sigmask = &scratchmask;
+  }
   sigdelset(sigmask, SIGWINCH);
   sigdelset(sigmask, SIGINT);
   sigdelset(sigmask, SIGQUIT);
@@ -224,7 +229,7 @@ int prep_special_keys(notcurses* nc){
     { .tinfo = "kcuu1", .key = NCKEY_UP, },
     { .tinfo = "kcud1", .key = NCKEY_DOWN, },
     { .tinfo = "kdch1", .key = NCKEY_DEL, },
-    { .tinfo = "kbs",   .key = NCKEY_BS, },
+    { .tinfo = "kbs",   .key = NCKEY_BACKSPACE, },
     { .tinfo = "kich1", .key = NCKEY_INS, },
     { .tinfo = "kend",  .key = NCKEY_END, },
     { .tinfo = "khome", .key = NCKEY_HOME, },
@@ -251,6 +256,31 @@ int prep_special_keys(notcurses* nc){
     { .tinfo = "kf18",  .key = NCKEY_F18, },
     { .tinfo = "kf19",  .key = NCKEY_F19, },
     { .tinfo = "kf20",  .key = NCKEY_F20, },
+    { .tinfo = "kf21",  .key = NCKEY_F21, },
+    { .tinfo = "kf22",  .key = NCKEY_F22, },
+    { .tinfo = "kf23",  .key = NCKEY_F23, },
+    { .tinfo = "kf24",  .key = NCKEY_F24, },
+    { .tinfo = "kf25",  .key = NCKEY_F25, },
+    { .tinfo = "kf26",  .key = NCKEY_F26, },
+    { .tinfo = "kf27",  .key = NCKEY_F27, },
+    { .tinfo = "kf28",  .key = NCKEY_F28, },
+    { .tinfo = "kf29",  .key = NCKEY_F29, },
+    { .tinfo = "kf30",  .key = NCKEY_F30, },
+    { .tinfo = "kent",  .key = NCKEY_ENTER, },
+    { .tinfo = "kclr",  .key = NCKEY_CLS, },
+    { .tinfo = "kc1",   .key = NCKEY_DLEFT, },
+    { .tinfo = "kc3",   .key = NCKEY_DRIGHT, },
+    { .tinfo = "ka1",   .key = NCKEY_ULEFT, },
+    { .tinfo = "ka3",   .key = NCKEY_URIGHT, },
+    { .tinfo = "kb2",   .key = NCKEY_CENTER, },
+    { .tinfo = "kbeg",  .key = NCKEY_BEGIN, },
+    { .tinfo = "kcan",  .key = NCKEY_CANCEL, },
+    { .tinfo = "kclo",  .key = NCKEY_CLOSE, },
+    { .tinfo = "kcmd",  .key = NCKEY_COMMAND, },
+    { .tinfo = "kcpy",  .key = NCKEY_COPY, },
+    { .tinfo = "kext",  .key = NCKEY_EXIT, },
+    { .tinfo = "kprt",  .key = NCKEY_PRINT, },
+    { .tinfo = "krfr",  .key = NCKEY_REFRESH, },
     { .tinfo = NULL,    .key = NCKEY_INVALID, }
   }, *k;
   for(k = keys ; k->tinfo ; ++k){
@@ -260,8 +290,7 @@ int prep_special_keys(notcurses* nc){
       continue;
     }
     if(seq[0] != ESC){
-      fprintf(stderr, "Terminfo's %s is not an escape sequence (%zub)\n",
-              k->tinfo, strlen(seq));
+//fprintf(stderr, "Terminfo's %s is not an escape sequence (%zub)\n", k->tinfo, strlen(seq));
       continue;
     }
 //fprintf(stderr, "support for terminfo's %s: %s\n", k->tinfo, seq);

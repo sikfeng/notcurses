@@ -11,7 +11,7 @@ fadethread(void* vncp){
 static struct ncplane*
 outro_message(struct notcurses* nc, int* rows, int* cols){
   const char str0[] = " ATL, baby! ATL! ";
-  const char str1[] = " much, much more is coming ";
+  const char str1[] = " throw those hands in the air";
   const char str2[] = " hack on! —dank❤ ";
   int xstart = (*cols - (strlen(str1) + 4)) / 2;
   int ystart = *rows - 6;
@@ -19,39 +19,40 @@ outro_message(struct notcurses* nc, int* rows, int* cols){
   if(on == NULL){
     return NULL;
   }
-  cell bgcell = CELL_TRIVIAL_INITIALIZER;
-  notcurses_bg_prep(&bgcell.channels, 0x58, 0x36, 0x58);
-  ncplane_set_background(on, &bgcell);
+  cell bgcell = CELL_SIMPLE_INITIALIZER(' ');
+  channels_set_bg_rgb(&bgcell.channels, 0x58, 0x36, 0x58);
+  if(ncplane_set_default(on, &bgcell) < 0){
+    return NULL;
+  }
   ncplane_dim_yx(on, rows, cols);
   int ybase = 0;
   // bevel the upper corners
-  uint64_t channel = 0;
-  if(notcurses_bg_set_alpha(&channel, 3)){
+  if(ncplane_set_bg_alpha(on, CELL_ALPHA_TRANS)){
     return NULL;
   }
   if(ncplane_cursor_move_yx(on, ybase, 0)){
     return NULL;
   }
-  if(ncplane_putsimple(on, ' ', 0, channel) < 0 || ncplane_putsimple(on, ' ', 0, channel) < 0){
+  if(ncplane_putsimple(on, ' ') < 0 || ncplane_putsimple(on, ' ') < 0){
     return NULL;
   }
   if(ncplane_cursor_move_yx(on, ybase, *cols - 2)){
     return NULL;
   }
-  if(ncplane_putsimple(on, ' ', 0, channel) < 0 || ncplane_putsimple(on, ' ', 0, channel) < 0){
+  if(ncplane_putsimple(on, ' ') < 0 || ncplane_putsimple(on, ' ') < 0){
     return NULL;
   }
   // ...and now the lower corners
   if(ncplane_cursor_move_yx(on, *rows - 1, 0)){
     return NULL;
   }
-  if(ncplane_putsimple(on, ' ', 0, channel) < 0 || ncplane_putsimple(on, ' ', 0, channel) < 0){
+  if(ncplane_putsimple(on, ' ') < 0 || ncplane_putsimple(on, ' ') < 0){
     return NULL;
   }
   if(ncplane_cursor_move_yx(on, *rows - 1, *cols - 2)){
     return NULL;
   }
-  if(ncplane_putsimple(on, ' ', 0, channel) < 0 || ncplane_putsimple(on, ' ', 0, channel) < 0){
+  if(ncplane_putsimple(on, ' ') < 0 || ncplane_putsimple(on, ' ') < 0){
     return NULL;
   }
   if(ncplane_set_fg_rgb(on, 0, 0, 0)){
@@ -60,22 +61,16 @@ outro_message(struct notcurses* nc, int* rows, int* cols){
   if(ncplane_set_bg_rgb(on, 0, 180, 180)){
     return NULL;
   }
-  if(ncplane_cursor_move_yx(on, ++ybase, (*cols - strlen(str0)) / 2)){
+  if(ncplane_set_bg_alpha(on, CELL_ALPHA_OPAQUE)){ // FIXME use intermediate
     return NULL;
   }
-  if(ncplane_putstr(on, str0) < 0){
+  if(ncplane_putstr_aligned(on, ++ybase, str0, NCALIGN_CENTER) < 0){
     return NULL;
   }
-  if(ncplane_cursor_move_yx(on, ++ybase, (*cols - strlen(str1)) / 2)){
+  if(ncplane_putstr_aligned(on, ++ybase, str1, NCALIGN_CENTER) < 0){
     return NULL;
   }
-  if(ncplane_putstr(on, str1) < 0){
-    return NULL;
-  }
-  if(ncplane_cursor_move_yx(on, ++ybase, (*cols - (strlen(str2) - 4)) / 2)){
-    return NULL;
-  }
-  if(ncplane_putstr(on, str2) < 0){
+  if(ncplane_putstr_aligned(on, ++ybase, str2, NCALIGN_CENTER) < 0){
     return NULL;
   }
   if(notcurses_render(nc)){

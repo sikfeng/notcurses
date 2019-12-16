@@ -5,14 +5,15 @@
 class NcplaneTest : public :: testing::Test {
  protected:
   void SetUp() override {
-    setlocale(LC_ALL, nullptr);
+    setlocale(LC_ALL, "");
     if(getenv("TERM") == nullptr){
       GTEST_SKIP();
     }
     notcurses_options nopts{};
     nopts.inhibit_alternate_screen = true;
-    nopts.outfp = fopen("/dev/tty", "wb");
-    nc_ = notcurses_init(&nopts);
+    outfp_ = fopen("/dev/tty", "wb");
+    ASSERT_NE(nullptr, outfp_);
+    nc_ = notcurses_init(&nopts, outfp_);
     ASSERT_NE(nullptr, nc_);
     n_ = notcurses_stdplane(nc_);
     ASSERT_NE(nullptr, n_);
@@ -23,10 +24,30 @@ class NcplaneTest : public :: testing::Test {
     if(nc_){
       EXPECT_EQ(0, notcurses_stop(nc_));
     }
+    if(outfp_){
+      fclose(outfp_);
+    }
   }
 
   struct notcurses* nc_{};
   struct ncplane* n_{};
+  FILE* outfp_{};
+
+  void BoxPermutationsRounded(unsigned edges) {
+    int dimx, dimy;
+    ncplane_dim_yx(n_, &dimy, &dimx);
+    ASSERT_LT(2, dimy);
+    ASSERT_LT(47, dimx);
+    // we'll try all 16 boxmasks in 3x3 configurations in a 1x16 map
+    unsigned boxmask = edges << NCBOXCORNER_SHIFT;
+    for(auto x0 = 0 ; x0 < 16 ; ++x0){
+      EXPECT_EQ(0, ncplane_cursor_move_yx(n_, 0, x0 * 3));
+      EXPECT_EQ(0, ncplane_rounded_box_sized(n_, 0, 0, 3, 3, boxmask));
+      ++boxmask;
+    }
+    EXPECT_EQ(0, notcurses_render(nc_));
+  }
+
 };
 
 // Starting position ought be 0, 0 (the origin)
@@ -152,6 +173,21 @@ TEST_F(NcplaneTest, EmitWideStr) {
   EXPECT_EQ(0, notcurses_render(nc_));
 }
 
+TEST_F(NcplaneTest, EmitEmojiStr) {
+  const wchar_t e[] =
+    L"🍺🚬🌿💉💊🔫💣🤜🤛🐌🐍🐎🐑🐒🐔🐗🐘🐙🐚"
+     "🐛🐜🐝🐞🐟🐠🐡🐢🐣🐤🐥🐦🐧🐨🐩🐫🐬🐭🐮"
+     "🐯🐰🐱🐲🐳🐴🐵🐶🐷🐸🐹🐺🐻🐼🦉🐊🐸🦕🦖"
+     "🐬🐙🦂🦠🦀";
+  int wrote = ncplane_putwstr(n_, e);
+  EXPECT_LT(0, wrote);
+  int x, y;
+  ncplane_cursor_yx(n_, &y, &x);
+  EXPECT_LE(0, y);
+  EXPECT_NE(1, x); // FIXME tighten in on this
+  EXPECT_EQ(0, notcurses_render(nc_));
+}
+
 TEST_F(NcplaneTest, HorizontalLines) {
   int x, y;
   ncplane_dim_yx(n_, &y, &x);
@@ -212,19 +248,20 @@ TEST_F(NcplaneTest, BadlyPlacedBoxen) {
   EXPECT_EQ(0, notcurses_render(nc_));
 }
 
-TEST_F(NcplaneTest, BoxPermutationsRounded) {
-  int dimx, dimy;
-  ncplane_dim_yx(n_, &dimy, &dimx);
-  ASSERT_LT(2, dimy);
-  ASSERT_LT(47, dimx);
-  // we'll try all 16 boxmasks in 3x3 configurations in a 1x16 map
-  unsigned boxmask = 0;
-  for(auto x0 = 0 ; x0 < 16 ; ++x0){
-    EXPECT_EQ(0, ncplane_cursor_move_yx(n_, 0, x0 * 3));
-    EXPECT_EQ(0, ncplane_rounded_box_sized(n_, 0, 0, 3, 3, boxmask));
-    ++boxmask;
-  }
-  EXPECT_EQ(0, notcurses_render(nc_));
+TEST_F(NcplaneTest, BoxPermutationsRoundedZeroEdges) {
+  BoxPermutationsRounded(0);
+}
+
+TEST_F(NcplaneTest, BoxPermutationsRoundedOneEdges) {
+  BoxPermutationsRounded(1);
+}
+
+TEST_F(NcplaneTest, BoxPermutationsRoundedTwoEdges) {
+  BoxPermutationsRounded(2);
+}
+
+TEST_F(NcplaneTest, BoxPermutationsRoundedThreeEdges) {
+  BoxPermutationsRounded(3);
 }
 
 TEST_F(NcplaneTest, BoxPermutationsDouble) {
@@ -612,14 +649,14 @@ TEST_F(NcplaneTest, BoxGradients) {
   ASSERT_LT(40, dimx);
   cell ul{}, ll{}, lr{}, ur{}, hl{}, vl{};
   ASSERT_EQ(0, cells_double_box(n_, 0, 0, &ul, &ur, &ll, &lr, &hl, &vl));
-  EXPECT_EQ(0, notcurses_fg_prep(&ul.channels, 255, 0, 0));
-  EXPECT_EQ(0, notcurses_fg_prep(&ur.channels, 0, 255, 0));
-  EXPECT_EQ(0, notcurses_fg_prep(&ll.channels, 0, 0, 255));
-  EXPECT_EQ(0, notcurses_fg_prep(&lr.channels, 255, 255, 255));
-  EXPECT_EQ(0, notcurses_bg_prep(&ul.channels, 0, 255, 255));
-  EXPECT_EQ(0, notcurses_bg_prep(&ur.channels, 255, 0, 255));
-  EXPECT_EQ(0, notcurses_bg_prep(&ll.channels, 255, 255, 0));
-  EXPECT_EQ(0, notcurses_bg_prep(&lr.channels, 0, 0, 0));
+  EXPECT_EQ(0, channels_set_fg_rgb(&ul.channels, 255, 0, 0));
+  EXPECT_EQ(0, channels_set_fg_rgb(&ur.channels, 0, 255, 0));
+  EXPECT_EQ(0, channels_set_fg_rgb(&ll.channels, 0, 0, 255));
+  EXPECT_EQ(0, channels_set_fg_rgb(&lr.channels, 255, 255, 255));
+  EXPECT_EQ(0, channels_set_bg_rgb(&ul.channels, 0, 255, 255));
+  EXPECT_EQ(0, channels_set_bg_rgb(&ur.channels, 255, 0, 255));
+  EXPECT_EQ(0, channels_set_bg_rgb(&ll.channels, 255, 255, 0));
+  EXPECT_EQ(0, channels_set_bg_rgb(&lr.channels, 0, 0, 0));
   // we'll try all 16 gradmasks in sideszXsidesz configs in a 4x4 map
   unsigned gradmask = 0;
   for(auto y0 = 0 ; y0 < 4 ; ++y0){
@@ -651,18 +688,18 @@ TEST_F(NcplaneTest, BoxSideColors) {
   cell ul{}, ll{}, lr{}, ur{}, hl{}, vl{};
   ASSERT_EQ(0, cells_rounded_box(n_, 0, 0, &ul, &ur, &ll, &lr, &hl, &vl));
   // we'll try all 16 boxmasks in sideszXsidesz configurations in a 4x4 map
-  EXPECT_EQ(0, notcurses_fg_prep(&ul.channels, 255, 0, 0));
-  EXPECT_EQ(0, notcurses_fg_prep(&ur.channels, 0, 255, 0));
-  EXPECT_EQ(0, notcurses_fg_prep(&ll.channels, 0, 0, 255));
-  EXPECT_EQ(0, notcurses_fg_prep(&lr.channels, 0, 0, 0));
-  EXPECT_EQ(0, notcurses_bg_prep(&ul.channels, 0, 255, 255));
-  EXPECT_EQ(0, notcurses_bg_prep(&ur.channels, 255, 0, 255));
-  EXPECT_EQ(0, notcurses_bg_prep(&ll.channels, 255, 255, 0));
-  EXPECT_EQ(0, notcurses_bg_prep(&lr.channels, 0, 0, 0));
-  EXPECT_EQ(0, notcurses_fg_prep(&hl.channels, 255, 0, 255));
-  EXPECT_EQ(0, notcurses_fg_prep(&vl.channels, 255, 255, 255));
-  EXPECT_EQ(0, notcurses_bg_prep(&hl.channels, 0, 255, 0));
-  EXPECT_EQ(0, notcurses_bg_prep(&vl.channels, 0, 0, 0));
+  EXPECT_EQ(0, channels_set_fg_rgb(&ul.channels, 255, 0, 0));
+  EXPECT_EQ(0, channels_set_fg_rgb(&ur.channels, 0, 255, 0));
+  EXPECT_EQ(0, channels_set_fg_rgb(&ll.channels, 0, 0, 255));
+  EXPECT_EQ(0, channels_set_fg_rgb(&lr.channels, 0, 0, 0));
+  EXPECT_EQ(0, channels_set_bg_rgb(&ul.channels, 0, 255, 255));
+  EXPECT_EQ(0, channels_set_bg_rgb(&ur.channels, 255, 0, 255));
+  EXPECT_EQ(0, channels_set_bg_rgb(&ll.channels, 255, 255, 0));
+  EXPECT_EQ(0, channels_set_bg_rgb(&lr.channels, 0, 0, 0));
+  EXPECT_EQ(0, channels_set_fg_rgb(&hl.channels, 255, 0, 255));
+  EXPECT_EQ(0, channels_set_fg_rgb(&vl.channels, 255, 255, 255));
+  EXPECT_EQ(0, channels_set_bg_rgb(&hl.channels, 0, 255, 0));
+  EXPECT_EQ(0, channels_set_bg_rgb(&vl.channels, 0, 0, 0));
   for(auto y0 = 0 ; y0 < 4 ; ++y0){
     for(auto x0 = 0 ; x0 < 4 ; ++x0){
       EXPECT_EQ(0, ncplane_cursor_move_yx(n_, y0 * sidesz, x0 * (sidesz + 1)));

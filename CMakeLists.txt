@@ -43,6 +43,7 @@ target_link_libraries(notcurses
 )
 target_link_directories(notcurses
   PRIVATE
+    "${TERMINFO_LIBRARY_DIRS}"
     "${AVFORMAT_LIBRARY_DIRS}"
     "${SWSCALE_LIBRARY_DIRS}"
     "${PANGO_LIBRARY_DIRS}"
@@ -78,8 +79,24 @@ target_compile_options(notcurses-demo
 )
 target_compile_definitions(notcurses-demo
   PRIVATE
-    FORTIFY_SOURCE=2
+  FORTIFY_SOURCE=2 _GNU_SOURCE
 )
+
+# tiny proofs of concept, one binary per source file
+file(GLOB POCSRCS CONFIGURE_DEPENDS src/poc/*.c)
+foreach(f ${POCSRCS})
+  get_filename_component(fe "${f}" NAME_WE)
+  add_executable(${fe} ${f})
+  target_include_directories(${fe}
+    PRIVATE include "${TERMINFO_INCLUDE_DIR}"
+  )
+  target_link_libraries(${fe}
+    PRIVATE notcurses "${TERMINFO_LIBRARIES}"
+  )
+  target_link_directories(${fe}
+    PRIVATE "${TERMINFO_LIBRARY_DIRS}"
+  )
+endforeach()
 
 file(GLOB INPUTSRCS CONFIGURE_DEPENDS src/input/*.cpp)
 add_executable(notcurses-input ${INPUTSRCS})
@@ -185,10 +202,15 @@ install(FILES
   DESTINATION ${CMAKE_INSTALL_PREFIX}/share/notcurses
 )
 
-file(GLOB MANPAGES1 CONFIGURE_DEPENDS doc/man/man1/*.1)
+file(GLOB MANPAGES1 CONFIGURE_DEPENDS doc/man/man1/*)
+file(GLOB MANPAGES3 CONFIGURE_DEPENDS doc/man/man3/*)
 install(FILES
   ${MANPAGES1}
   DESTINATION ${CMAKE_INSTALL_PREFIX}/man/man1
+)
+install(FILES
+  ${MANPAGES3}
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/man/man3
 )
 
 install(TARGETS notcurses-demo DESTINATION bin)

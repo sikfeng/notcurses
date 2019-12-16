@@ -78,12 +78,12 @@ typedef struct cell {
   uint32_t gcluster;          // 1 * 4b -> 4b
   // CELL_STYLE_* attributes (16 bits) + 16 reserved bits
   uint32_t attrword;          // + 4b -> 8b
-  // (channels & 0x8000000000000000ull): wide character (left or right side)
+  // (channels & 0x8000000000000000ull): left half of wide character
   // (channels & 0x4000000000000000ull): foreground is *not* "default color"
   // (channels & 0x3000000000000000ull): foreground alpha (2 bits)
   // (channels & 0x0f00000000000000ull): reserved, must be 0
   // (channels & 0x00ffffff00000000ull): foreground in 3x8 RGB (rrggbb)
-  // (channels & 0x0000000080000000ull): reserved, must be 0
+  // (channels & 0x0000000080000000ull): right half of wide character
   // (channels & 0x0000000040000000ull): background is *not* "default color"
   // (channels & 0x0000000030000000ull): background alpha (2 bits)
   // (channels & 0x000000000f000000ull): reserved, must be 0
@@ -102,31 +102,28 @@ typedef struct notcurses_options {
   // the environment variable TERM is used. Failure to open the terminal
   // definition will result in failure to initialize notcurses.
   const char* termtype;
-  // An open FILE* for this terminal, on which we will generate output. If
-  // not attached to a sufficiently capable terminal, notcurses will refuse
-  // to start. You'll usually want stdout.
-  FILE* outfp;
   // If smcup/rmcup capabilities are indicated, notcurses defaults to making
   // use of the "alternate screen". This flag inhibits use of smcup/rmcup.
   bool inhibit_alternate_screen;
   // By default, we hide the cursor if possible. This flag inhibits use of
   // the civis capability, retaining the cursor.
   bool retain_cursor;
-  // We typically install a signal handler for SIGINT and SIGQUIT that restores
-  // the screen, and then calls the old signal handler. Set this to inhibit
-  // registration of any signal handlers.
+  // We typically install a signal handler for SIG{INT, SEGV, ABRT, QUIT} that
+  // restores the screen, and then calls the old signal handler. Set to inhibit
+  // registration of these signal handlers.
   bool no_quit_sighandlers;
   // We typically install a signal handler for SIGWINCH that generates a resize
-  // event in the notcurses_getc() queue. Set this to inhibit the handler.
+  // event in the notcurses_getc() queue. Set to inhibit this handler.
   bool no_winch_sighandler;
   // If non-NULL, notcurses_render() will write each rendered frame to this
   // FILE* in addition to outfp. This is used primarily for debugging.
   FILE* renderfp;
 } notcurses_options;
 
-// Initialize a notcurses context, corresponding to a connected terminal.
-// Returns NULL on error, including any failure to initialize terminfo.
-API struct notcurses* notcurses_init(const notcurses_options* opts);
+// Initialize a notcurses context on the connected terminal at 'fp'. 'fp' must
+// be a tty. You'll usually want stdout. Returns NULL on error, including any
+// failure to initialize terminfo.
+API struct notcurses* notcurses_init(const notcurses_options* opts, FILE* fp);
 
 // Destroy a notcurses context.
 API int notcurses_stop(struct notcurses* nc);
@@ -138,11 +135,10 @@ API int notcurses_render(struct notcurses* nc);
 
 // All input is currently taken from stdin, though this will likely change. We
 // attempt to read a single UTF8-encoded Unicode codepoint, *not* an entire
-// Extended Grapheme Cluster (despite use of the cell object, which encodes an
-// entire EGC). It is also possible that we will read a special keypress, i.e.
-// anything that doesn't correspond to a Unicode codepoint (e.g. arrow keys,
-// function keys, screen resize events, etc.). These are mapped into Unicode's
-// Supplementary Private Use Area-B, starting at U+100000.
+// Extended Grapheme Cluster. It is also possible that we will read a special
+// keypress, i.e. anything that doesn't correspond to a Unicode codepoint (e.g.
+// arrow keys, function keys, screen resize events, etc.). These are mapped
+// into Unicode's Supplementary Private Use Area-B, starting at U+100000.
 //
 // notcurses_getc() and notcurses_getc_nblock() are both nonblocking.
 // notcurses_getc_blocking() blocks until a codepoint or special key is read,
@@ -170,7 +166,7 @@ wchar_supppuab_p(wchar_t w){
 #define NCKEY_LEFT    suppuabize(5)
 #define NCKEY_INS     suppuabize(6)
 #define NCKEY_DEL     suppuabize(7)
-#define NCKEY_BS      suppuabize(8) // backspace (sometimes)
+#define NCKEY_BACKSPACE suppuabize(8) // backspace (sometimes)
 #define NCKEY_PGDOWN  suppuabize(9)
 #define NCKEY_PGUP    suppuabize(10)
 #define NCKEY_HOME    suppuabize(11)
@@ -196,12 +192,39 @@ wchar_supppuab_p(wchar_t w){
 #define NCKEY_F18     suppuabize(38)
 #define NCKEY_F19     suppuabize(39)
 #define NCKEY_F20     suppuabize(40)
+#define NCKEY_F21     suppuabize(41)
+#define NCKEY_F22     suppuabize(42)
+#define NCKEY_F23     suppuabize(43)
+#define NCKEY_F24     suppuabize(44)
+#define NCKEY_F25     suppuabize(45)
+#define NCKEY_F26     suppuabize(46)
+#define NCKEY_F27     suppuabize(47)
+#define NCKEY_F28     suppuabize(48)
+#define NCKEY_F29     suppuabize(49)
+#define NCKEY_F30     suppuabize(50)
+// ... leave room for up to 100 function keys, egads
+#define NCKEY_ENTER   suppuabize(121)
+#define NCKEY_CLS     suppuabize(122) // "clear-screen or erase"
+#define NCKEY_DLEFT   suppuabize(123) // down + left on keypad
+#define NCKEY_DRIGHT  suppuabize(124)
+#define NCKEY_ULEFT   suppuabize(125) // up + left on keypad
+#define NCKEY_URIGHT  suppuabize(126)
+#define NCKEY_CENTER  suppuabize(127) // the most truly neutral of keypresses
+#define NCKEY_BEGIN   suppuabize(128)
+#define NCKEY_CANCEL  suppuabize(129)
+#define NCKEY_CLOSE   suppuabize(130)
+#define NCKEY_COMMAND suppuabize(131)
+#define NCKEY_COPY    suppuabize(132)
+#define NCKEY_EXIT    suppuabize(133)
+#define NCKEY_PRINT   suppuabize(134)
+#define NCKEY_REFRESH suppuabize(135)
 
-// See ppoll(2) for more detail. Provide a NULL 'ts' to block at lenghth, a 'ts'
+// See ppoll(2) for more detail. Provide a NULL 'ts' to block at length, a 'ts'
 // of 0 for non-blocking operation, and otherwise a timespec to bound blocking.
 // Signals in sigmask (less several we handle internally) will be atomically
 // masked and unmasked per ppoll(2). It should generally contain all signals.
-// Returns a single Unicode code point, or (wchar_t)-1 on error.
+// Returns a single Unicode code point, or (wchar_t)-1 on error. 'sigmask' may
+// be NULL.
 API int notcurses_getc(struct notcurses* n, const struct timespec* ts, sigset_t* sigmask);
 
 static inline int
@@ -222,12 +245,18 @@ notcurses_getc_blocking(struct notcurses* n){
 // Refresh our idea of the terminal's dimensions, reshaping the standard plane
 // if necessary. Without a call to this function following a terminal resize
 // (as signaled via SIGWINCH), notcurses_render() might not function properly.
-// References to ncplanes remain valid following a resize operation, but the
-// cursor might have changed position.
-API int notcurses_resize(struct notcurses* n, int* y, int* x);
+// References to ncplanes (and the egcpools underlying cells) remain valid
+// following a resize operation, but the cursor might have changed position.
+API int notcurses_resize(struct notcurses* n, int* RESTRICT y, int* RESTRICT x);
+
+// Refresh the physical screen to match what was last rendered (i.e., without
+// reflecting any changes since the last call to notcurses_render()). This is
+// primarily useful if the screen is externally corrupted.
+API int notcurses_refresh(struct notcurses* n);
 
 // Get a reference to the standard plane (one matching our current idea of the
-// terminal size) for this terminal.
+// terminal size) for this terminal. The standard plane always exists, and its
+// origin is always at the uppermost, leftmost cell of the screen.
 API struct ncplane* notcurses_stdplane(struct notcurses* nc);
 API const struct ncplane* notcurses_stdplane_const(const struct notcurses* nc);
 
@@ -238,13 +267,15 @@ API const struct ncplane* notcurses_stdplane_const(const struct notcurses* nc);
 API struct ncplane* notcurses_newplane(struct notcurses* nc, int rows, int cols,
                                        int yoff, int xoff, void* opaque);
 
-// Returns a 16-bit bitmask in the LSBs of supported curses-style attributes
+// Returns a 16-bit bitmask of supported curses-style attributes
 // (CELL_STYLE_UNDERLINE, CELL_STYLE_BOLD, etc.) The attribute is only
 // indicated as supported if the terminal can support it together with color.
+// For more information, see the "ncv" capability in terminfo(5).
 API unsigned notcurses_supported_styles(const struct notcurses* nc);
 
-// Returns the number of colors supported by the palette, or 1 if there is no
-// color support.
+// Returns the number of simultaneous colors claimed to be supported, or 1 if
+// there is no color support. Note that several terminal emulators advertise
+// more colors than they actually support, downsampling internally.
 API int notcurses_palette_size(const struct notcurses* nc);
 
 typedef struct ncstats {
@@ -255,6 +286,9 @@ typedef struct ncstats {
   uint64_t render_ns;        // nanoseconds spent in notcurses_render()
   int64_t render_max_ns;     // max ns spent in notcurses_render()
   int64_t render_min_ns;     // min ns spent in successful notcurses_render()
+  uint64_t cellelisions;     // cells we elided entirely thanks to damage maps
+  uint64_t cellemissions;    // cells we emitted due to inferred damage
+  uint64_t fbbytes;          // total bytes devoted to all active framebuffers
   uint64_t fgelisions;       // RGB fg elision count
   uint64_t fgemissions;      // RGB fg emissions
   uint64_t bgelisions;       // RGB bg elision count
@@ -289,13 +323,13 @@ API int ncplane_resize(struct ncplane* n, int keepy, int keepx, int keepleny,
 // the standard plane.
 API int ncplane_destroy(struct ncplane* ncp);
 
-// Set the ncplane's background cell to this cell. It will be rendered anywhere
-// that the ncplane's gcluster is 0. The default background is all zeroes.
-// Erasing the ncplane does not eliminate the background.
-API int ncplane_set_background(struct ncplane* ncp, const cell* c);
+// Set the ncplane's default cell to this cell. If defined, it will be rendered
+// anywhere that the ncplane's gcluster is 0. Erasing the ncplane does not
+// reset the default cell; this function must instead be called with a zero c.
+API int ncplane_set_default(struct ncplane* ncp, const cell* c);
 
-// Extract the ncplane's background cell into 'c'.
-API int ncplane_background(struct ncplane* ncp, cell* c);
+// Extract the ncplane's default cell into 'c'.
+API int ncplane_default(struct ncplane* ncp, cell* c);
 
 // Move this plane relative to the standard plane. It is an error to attempt to
 // move the standard plane.
@@ -351,10 +385,42 @@ API void ncplane_cursor_yx(const struct ncplane* n, int* RESTRICT y,
 // On failure, -1 is returned.
 API int ncplane_putc(struct ncplane* n, const cell* c);
 
-// Replace the cell underneath the cursor with the provided 7-bit char 'c',
-// using the specified 'attr' and 'channels' for styling. Advance the cursor by
-// 1. On success, returns 1. On failure, returns -1.
-API int ncplane_putsimple(struct ncplane* n, char c, uint32_t attr, uint64_t channels);
+// Call ncplane_putc() after successfully moving to y, x on the specified plane.
+static inline int
+ncplane_putc_yx(struct ncplane* n, int y, int x, const cell* c){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_putc(n, c);
+}
+
+// Replace the cell underneath the cursor with the provided 7-bit char 'c'.
+// Advance the cursor by 1. On success, returns 1. On failure, returns -1.
+// This works whether the underlying char is signed or unsigned.
+API int ncplane_putsimple(struct ncplane* n, char c);
+
+// Call ncplane_simple() after successfully moving to y, x.
+static inline int
+ncplane_putsimple_yx(struct ncplane* n, int y, int x, char c){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_putsimple(n, c);
+}
+
+// Replace the cell underneath the cursor with the provided wide char 'w'.
+// Advance the cursor by the character's width as reported by wcwidth(). On
+// success, returns 1. On failure, returns -1.
+API int ncplane_putwc(struct ncplane* n, wchar_t w);
+
+// Call ncplane_putwc() after successfully moving to y, x.
+static inline int
+ncplane_putwc_yx(struct ncplane* n, int y, int x, wchar_t w){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_putwc(n, w);
+}
 
 // Replace the cell underneath the cursor with the provided EGC, using the
 // specified 'attr' and 'channels' for styling, and advance the cursor by the
@@ -364,19 +430,29 @@ API int ncplane_putsimple(struct ncplane* n, char c, uint32_t attr, uint64_t cha
 API int ncplane_putegc(struct ncplane* n, const char* gclust, uint32_t attr,
                        uint64_t channels, int* sbytes);
 
+// Call ncplane_putegc() after successfully moving to y, x.
+static inline int
+ncplane_putegc_yx(struct ncplane* n, int y, int x, const char* gclust, uint32_t attr,
+                  uint64_t channels, int* sbytes){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_putegc(n, gclust, attr, channels, sbytes);
+}
+
 #define WCHAR_MAX_UTF8BYTES 6
 
 // ncplane_putegc(), but following a conversion from wchar_t to UTF-8 multibyte.
 static inline int
-ncplane_putwegc(struct ncplane* n, const wchar_t* gclustarr, uint32_t attr,
+ncplane_putwegc(struct ncplane* n, const wchar_t* gclust, uint32_t attr,
                 uint64_t channels, int* sbytes){
   // maximum of six UTF8-encoded bytes per wchar_t
-  const size_t mbytes = (wcslen(gclustarr) * WCHAR_MAX_UTF8BYTES) + 1;
+  const size_t mbytes = (wcslen(gclust) * WCHAR_MAX_UTF8BYTES) + 1;
   char* mbstr = (char*)malloc(mbytes); // need cast for c++ callers
   if(mbstr == NULL){
     return -1;
   }
-  size_t s = wcstombs(mbstr, gclustarr, mbytes);
+  size_t s = wcstombs(mbstr, gclust, mbytes);
   if(s == (size_t)-1){
     free(mbstr);
     return -1;
@@ -386,13 +462,41 @@ ncplane_putwegc(struct ncplane* n, const wchar_t* gclustarr, uint32_t attr,
   return ret;
 }
 
-// Write a series of cells to the current location, using the current style.
+// Call ncplane_putwegc() after successfully moving to y, x.
+static inline int
+ncplane_putwegc_yx(struct ncplane* n, int y, int x, const wchar_t* gclust,
+                   uint32_t attr, uint64_t channels, int* sbytes){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_putwegc(n, gclust, attr, channels, sbytes);
+}
+
+// Write a series of EGCs to the current location, using the current style.
 // They will be interpreted as a series of columns (according to the definition
 // of ncplane_putc()). Advances the cursor by some positive number of cells
 // (though not beyond the end of the plane); this number is returned on success.
 // On error, a non-positive number is returned, indicating the number of cells
 // which were written before the error.
 API int ncplane_putstr(struct ncplane* n, const char* gclustarr);
+
+// Alignment within the ncplane. Left/right-justified, or centered.
+typedef enum {
+  NCALIGN_LEFT,
+  NCALIGN_CENTER,
+  NCALIGN_RIGHT,
+} ncalign_e;
+
+API int ncplane_putstr_aligned(struct ncplane* n, int y, const char* s,
+                               ncalign_e atype);
+
+static inline int
+ncplane_putstr_yx(struct ncplane* n, int y, int x, const char* gclustarr){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_putstr(n, gclustarr);
+}
 
 // ncplane_putstr(), but following a conversion from wchar_t to UTF-8 multibyte.
 static inline int
@@ -413,9 +517,30 @@ ncplane_putwstr(struct ncplane* n, const wchar_t* gclustarr){
   return ret;
 }
 
+API int ncplane_putwstr_aligned(struct ncplane* n, int y,
+                                const wchar_t* gclustarr, ncalign_e atype);
+
+static inline int
+ncplane_putwstr_yx(struct ncplane* n, int y, int x, const wchar_t* gclustarr){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_putwstr(n, gclustarr);
+}
+
 // The ncplane equivalents of printf(3) and vprintf(3).
-API int ncplane_printf(struct ncplane* n, const char* format, ...);
+API int ncplane_printf(struct ncplane* n, const char* format, ...)
+  __attribute__ ((format (printf, 2, 3)));
+
 API int ncplane_vprintf(struct ncplane* n, const char* format, va_list ap);
+
+static inline int
+ncplane_vprintf_yx(struct ncplane* n, int y, int x, const char* format, va_list ap){
+  if(ncplane_cursor_move_yx(n, y, x)){
+    return -1;
+  }
+  return ncplane_vprintf(n, format, ap);
+}
 
 // Draw horizontal or vertical lines using the specified cell, starting at the
 // current cursor position. The cursor will end at the cell following the last
@@ -448,20 +573,26 @@ ncplane_vline(struct ncplane* n, const cell* c, int len){
 //  * 6, 2: right
 //  * 5, 1: bottom
 //  * 4, 0: left
-// if the gradient bit is not set, the styling from the hl/vl cells is used for
-// the horizontal and vertical lines, respectively. if the gradient bit is set,
-// the color is linearly interpolated between the two relevant corner cells. if
-// the bordermask bit is set, that side of the box is not drawn. iff either edge
-// connecting to a corner is drawn, the corner is drawn.
+// If the gradient bit is not set, the styling from the hl/vl cells is used for
+// the horizontal and vertical lines, respectively. If the gradient bit is set,
+// the color is linearly interpolated between the two relevant corner cells.
+//
+// By default, vertexes are drawn whether their connecting edges are drawn or
+// not. The value of the bits corresponding to NCBOXCORNER_MASK control this,
+// and are interpreted as the number of connecting edges necessary to draw a
+// given corner. At 0 (the default), corners are always drawn. At 3, corners
+// are never drawn (as at most 2 edges can touch a box's corner).
 
-#define NCBOXMASK_TOP    0x01
-#define NCBOXMASK_RIGHT  0x02
-#define NCBOXMASK_BOTTOM 0x04
-#define NCBOXMASK_LEFT   0x08
-#define NCBOXGRAD_TOP    0x10
-#define NCBOXGRAD_RIGHT  0x20
-#define NCBOXGRAD_BOTTOM 0x40
-#define NCBOXGRAD_LEFT   0x80
+#define NCBOXMASK_TOP    0x0001
+#define NCBOXMASK_RIGHT  0x0002
+#define NCBOXMASK_BOTTOM 0x0004
+#define NCBOXMASK_LEFT   0x0008
+#define NCBOXGRAD_TOP    0x0010
+#define NCBOXGRAD_RIGHT  0x0020
+#define NCBOXGRAD_BOTTOM 0x0040
+#define NCBOXGRAD_LEFT   0x0080
+#define NCBOXCORNER_MASK 0x0300
+#define NCBOXCORNER_SHIFT 8u
 
 API int ncplane_box(struct ncplane* n, const cell* ul, const cell* ur,
                     const cell* ll, const cell* lr, const cell* hline,
@@ -483,8 +614,416 @@ ncplane_box_sized(struct ncplane* n, const cell* ul, const cell* ur,
 
 // Erase every cell in the ncplane, resetting all attributes to normal, all
 // colors to the default color, and all cells to undrawn. All cells associated
-// with this ncplane is invalidated, and must not be used after the call.
+// with this ncplane is invalidated, and must not be used after the call,
+// excluding the default cell.
 API void ncplane_erase(struct ncplane* n);
+
+#define CELL_WIDEASIAN_MASK    0x8000000080000000ull
+#define CELL_FGDEFAULT_MASK    0x4000000000000000ull
+#define CELL_FG_MASK           0x00ffffff00000000ull
+#define CELL_BGDEFAULT_MASK    0x0000000040000000ull
+#define CELL_BG_MASK           0x0000000000ffffffull
+#define CELL_ALPHA_MASK        0x0000000030000000ull
+#define CELL_ALPHA_SHIFT       28u
+#define CELL_ALPHA_TRANS       3
+#define CELL_ALPHA_OPAQUE      0
+
+// These lowest-level functions manipulate a 64-bit channel encoding directly.
+// Users will typically manipulate ncplane and cell channels through those APIs,
+// rather than calling these directly.
+
+// Extract the 8-bit red component from a 32-bit channel.
+static inline unsigned
+channel_get_r(unsigned channel){
+  return (channel & 0xff0000u) >> 16u;
+}
+
+// Extract the 8-bit green component from a 32-bit channel.
+static inline unsigned
+channel_get_g(unsigned channel){
+  return (channel & 0x00ff00u) >> 8u;
+}
+
+// Extract the 8-bit blue component from a 32-bit channel.
+static inline unsigned
+channel_get_b(unsigned channel){
+  return (channel & 0x0000ffu);
+}
+
+// Extract the three 8-bit R/G/B components from a 32-bit channel.
+static inline unsigned
+channel_get_rgb(unsigned channel, unsigned* RESTRICT r, unsigned* RESTRICT g,
+                unsigned* RESTRICT b){
+  *r = channel_get_r(channel);
+  *g = channel_get_g(channel);
+  *b = channel_get_b(channel);
+  return channel;
+}
+
+// Set the three 8-bit components of a 32-bit channel, and mark it as not using
+// the default color. Retain the other bits unchanged.
+static inline int
+channel_set_rgb(unsigned* channel, int r, int g, int b){
+  if(r >= 256 || g >= 256 || b >= 256){
+    return -1;
+  }
+  if(r < 0 || g < 0 || b < 0){
+    return -1;
+  }
+  unsigned c = (r << 16u) | (g << 8u) | b;
+  c |= CELL_BGDEFAULT_MASK;
+  const uint64_t mask = CELL_BGDEFAULT_MASK | CELL_BG_MASK;
+  *channel = (*channel & ~mask) | c;
+  return 0;
+}
+
+// Same, but provide an assembled, packed 24 bits of rgb.
+static inline int
+channel_set(unsigned* channel, unsigned rgb){
+  if(rgb > 0xffffffu){
+    return -1;
+  }
+  *channel = (*channel & ~CELL_BG_MASK) | CELL_BGDEFAULT_MASK | rgb;
+  return 0;
+}
+
+// Extract the 2-bit alpha component from a 32-bit channel.
+static inline unsigned
+channel_get_alpha(unsigned channel){
+  return (channel & CELL_ALPHA_MASK) >> CELL_ALPHA_SHIFT;
+}
+
+// Set the 2-bit alpha component of the 32-bit channel.
+static inline int
+channel_set_alpha(unsigned* channel, int alpha){
+  if(alpha < CELL_ALPHA_OPAQUE || alpha > CELL_ALPHA_TRANS){
+    return -1;
+  }
+  *channel = (alpha << CELL_ALPHA_SHIFT) | (*channel & ~CELL_ALPHA_MASK);
+  return 0;
+}
+
+// Is this channel using the "default color" rather than its RGB?
+static inline bool
+channel_default_p(unsigned channel){
+  return !(channel & CELL_BGDEFAULT_MASK);
+}
+
+// Mark the channel as using its default color.
+static inline unsigned
+channel_set_default(unsigned* channel){
+  return *channel &= ~CELL_BGDEFAULT_MASK;
+}
+
+// Extract the 32-bit background channel from a channel pair.
+static inline unsigned
+channels_get_bchannel(uint64_t channels){
+  return channels & 0xfffffffflu;
+}
+
+// Extract the 32-bit foreground channel from a channel pair.
+static inline unsigned
+channels_get_fchannel(uint64_t channels){
+  return channels_get_bchannel(channels >> 32u);
+}
+
+// Set the 32-bit background channel of a channel pair.
+static inline uint64_t
+channels_set_bchannel(uint64_t* channels, uint32_t channel){
+  return *channels = (*channels & 0xffffffff00000000llu) | channel;
+}
+
+// Set the 32-bit foreground channel of a channel pair.
+static inline uint64_t
+channels_set_fchannel(uint64_t* channels, uint32_t channel){
+  return *channels = (*channels & 0xfffffffflu) | ((uint64_t)channel << 32u);
+}
+
+// Extract 24 bits of foreground RGB from 'channels', shifted to LSBs.
+static inline unsigned
+channels_get_fg(uint64_t channels){
+  return channels_get_fchannel(channels) & CELL_BG_MASK;
+}
+
+// Extract 24 bits of background RGB from 'channels', shifted to LSBs.
+static inline unsigned
+channels_get_bg(uint64_t channels){
+  return channels_get_bchannel(channels) & CELL_BG_MASK;
+}
+
+// Extract 2 bits of foreground alpha from 'channels', shifted to LSBs.
+static inline unsigned
+channels_get_fg_alpha(uint64_t channels){
+  return channel_get_alpha(channels_get_fchannel(channels));
+}
+
+// Extract 2 bits of background alpha from 'channels', shifted to LSBs.
+static inline unsigned
+channels_get_bg_alpha(uint64_t channels){
+  return channel_get_alpha(channels_get_bchannel(channels));
+}
+
+// Extract 24 bits of foreground RGB from 'channels', split into subchannels.
+static inline unsigned
+channels_get_fg_rgb(uint64_t channels, unsigned* r, unsigned* g, unsigned* b){
+  return channel_get_rgb(channels_get_fchannel(channels), r, g, b);
+}
+
+// Extract 24 bits of background RGB from 'channels', split into subchannels.
+static inline unsigned
+channels_get_bg_rgb(uint64_t channels, unsigned* r, unsigned* g, unsigned* b){
+  return channel_get_rgb(channels_get_bchannel(channels), r, g, b);
+}
+
+// Set the r, g, and b channels for the foreground component of this 64-bit
+// 'channels' variable, and mark it as not using the default color.
+static inline int
+channels_set_fg_rgb(uint64_t* channels, int r, int g, int b){
+  unsigned channel = channels_get_fchannel(*channels);
+  if(channel_set_rgb(&channel, r, g, b) < 0){
+    return -1;
+  }
+  *channels = ((uint64_t)channel << 32llu) | (*channels & 0xffffffffllu);
+  return 0;
+}
+
+// Set the r, g, and b channels for the background component of this 64-bit
+// 'channels' variable, and mark it as not using the default color.
+static inline int
+channels_set_bg_rgb(uint64_t* channels, int r, int g, int b){
+  unsigned channel = channels_get_bchannel(*channels);
+  if(channel_set_rgb(&channel, r, g, b) < 0){
+    return -1;
+  }
+  *channels = (*channels & 0xffffffff00000000llu) | channel;
+  return 0;
+}
+
+// Same, but set an assembled 24 bits of rgb at once.
+static inline int
+channels_set_fg(uint64_t* channels, unsigned rgb){
+  unsigned channel = channels_get_fchannel(*channels);
+  if(channel_set(&channel, rgb) < 0){
+    return -1;
+  }
+  *channels = ((uint64_t)channel << 32llu) | (*channels & 0xffffffffllu);
+  return 0;
+}
+
+static inline int
+channels_set_bg(uint64_t* channels, unsigned rgb){
+  unsigned channel = channels_get_bchannel(*channels);
+  if(channel_set(&channel, rgb) < 0){
+    return -1;
+  }
+  *channels = (*channels & 0xffffffff00000000llu) | channel;
+  return 0;
+}
+
+// Set the 2-bit alpha component of the foreground channel.
+static inline int
+channels_set_fg_alpha(uint64_t* channels, int alpha){
+  unsigned channel = channels_get_fchannel(*channels);
+  if(channel_set_alpha(&channel, alpha) < 0){
+    return -1;
+  }
+  *channels = ((uint64_t)channel << 32llu) | (*channels & 0xffffffffllu);
+  return 0;
+}
+
+// Set the 2-bit alpha component of the background channel.
+static inline int
+channels_set_bg_alpha(uint64_t* channels, int alpha){
+  unsigned channel = channels_get_bchannel(*channels);
+  if(channel_set_alpha(&channel, alpha) < 0){
+    return -1;
+  }
+  *channels = (*channels & 0xffffffff00000000llu) | channel;
+  return 0;
+}
+
+// Is the foreground using the "default foreground color"?
+static inline bool
+channels_fg_default_p(uint64_t channels){
+  return channel_default_p(channels_get_fchannel(channels));
+}
+
+// Is the background using the "default background color"? The "default
+// background color" must generally be used to take advantage of
+// terminal-effected transparency.
+static inline bool
+channels_bg_default_p(uint64_t channels){
+  return channel_default_p(channels_get_bchannel(channels));
+}
+
+// Mark the foreground channel as using its default color.
+static inline uint64_t
+channels_set_fg_default(uint64_t* channels){
+  unsigned channel = channels_get_fchannel(*channels);
+  channel_set_default(&channel);
+  *channels = ((uint64_t)channel << 32llu) | (*channels & 0xffffffffllu);
+  return *channels;
+}
+
+// Mark the foreground channel as using its default color.
+static inline uint64_t
+channels_set_bg_default(uint64_t* channels){
+  unsigned channel = channels_get_bchannel(*channels);
+  channel_set_default(&channel);
+  *channels = (*channels & 0xffffffff00000000llu) | channel;
+  return *channels;
+}
+
+// Extract the 32-bit background channel from a cell.
+static inline unsigned
+cell_get_bchannel(const cell* cl){
+  return channels_get_bchannel(cl->channels);
+}
+
+// Extract the 32-bit foreground channel from a cell.
+static inline unsigned
+cell_get_fchannel(const cell* cl){
+  return channels_get_fchannel(cl->channels);
+}
+
+// Set the 32-bit background channel of a cell.
+static inline uint64_t
+cell_set_bchannel(cell* cl, uint32_t channel){
+  return channels_set_bchannel(&cl->channels, channel);
+}
+
+// Set the 32-bit foreground channel of a cell.
+static inline uint64_t
+cell_set_fchannel(cell* cl, uint32_t channel){
+  return channels_set_fchannel(&cl->channels, channel);
+}
+
+// Extract 24 bits of foreground RGB from 'cell', shifted to LSBs.
+static inline unsigned
+cell_get_fg(const cell* cl){
+  return channels_get_fg(cl->channels);
+}
+
+// Extract 24 bits of background RGB from 'cell', shifted to LSBs.
+static inline unsigned
+cell_get_bg(const cell* cl){
+  return channels_get_bg(cl->channels);
+}
+
+// Extract 2 bits of foreground alpha from 'cell', shifted to LSBs.
+static inline unsigned
+cell_get_fg_alpha(const cell* cl){
+  return channels_get_fg_alpha(cl->channels);
+}
+
+// Extract 2 bits of background alpha from 'cell', shifted to LSBs.
+static inline unsigned
+cell_get_bg_alpha(const cell* cl){
+  return channels_get_bg_alpha(cl->channels);
+}
+
+// Extract 24 bits of foreground RGB from 'cell', split into subcell.
+static inline unsigned
+cell_get_fg_rgb(const cell* cl, unsigned* r, unsigned* g, unsigned* b){
+  return channels_get_fg_rgb(cl->channels, r, g, b);
+}
+
+// Extract 24 bits of background RGB from 'cell', split into subcell.
+static inline unsigned
+cell_get_bg_rgb(const cell* cl, unsigned* r, unsigned* g, unsigned* b){
+  return channels_get_bg_rgb(cl->channels, r, g, b);
+}
+
+// Set the r, g, and b cell for the foreground component of this 64-bit
+// 'cell' variable, and mark it as not using the default color.
+static inline int
+cell_set_fg_rgb(cell* cl, int r, int g, int b){
+  return channels_set_fg_rgb(&cl->channels, r, g, b);
+}
+
+// Set the r, g, and b cell for the background component of this 64-bit
+// 'cell' variable, and mark it as not using the default color.
+static inline int
+cell_set_bg_rgb(cell* cl, int r, int g, int b){
+  return channels_set_bg_rgb(&cl->channels, r, g, b);
+}
+
+// Same, but with rgb assembled into a channel (i.e. lower 24 bits).
+static inline int
+cell_set_fg(cell* c, uint32_t channel){
+  return channels_set_fg(&c->channels, channel);
+}
+
+static inline int
+cell_set_bg(cell* c, uint32_t channel){
+  return channels_set_bg(&c->channels, channel);
+}
+
+// Is the foreground using the "default foreground color"?
+static inline bool
+cell_fg_default_p(const cell* cl){
+  return channels_fg_default_p(cl->channels);
+}
+
+// Is the background using the "default background color"? The "default
+// background color" must generally be used to take advantage of
+// terminal-effected transparency.
+static inline bool
+cell_bg_default_p(const cell* cl){
+  return channels_bg_default_p(cl->channels);
+}
+
+// Get the current channels or attribute word for ncplane 'n'.
+API uint64_t ncplane_get_channels(const struct ncplane* n);
+API uint32_t ncplane_get_attr(const struct ncplane* n);
+
+// Extract the 32-bit working background channel from an ncplane.
+static inline unsigned
+ncplane_get_bchannel(const struct ncplane* nc){
+  return channels_get_bchannel(ncplane_get_channels(nc));
+}
+
+// Extract the 32-bit working foreground channel from an ncplane.
+static inline unsigned
+ncplane_get_fchannel(const struct ncplane* nc){
+  return channels_get_fchannel(ncplane_get_channels(nc));
+}
+
+// Extract 24 bits of working foreground RGB from an ncplane, shifted to LSBs.
+static inline unsigned
+ncplane_get_fg(const struct ncplane* nc){
+  return channels_get_fg(ncplane_get_channels(nc));
+}
+
+// Extract 24 bits of working background RGB from an ncplane, shifted to LSBs.
+static inline unsigned
+ncplane_get_bg(const struct ncplane* nc){
+  return channels_get_bg(ncplane_get_channels(nc));
+}
+
+// Extract 2 bits of foreground alpha from 'struct ncplane', shifted to LSBs.
+static inline unsigned
+ncplane_get_fg_alpha(const struct ncplane* nc){
+  return channels_get_fg_alpha(ncplane_get_channels(nc));
+}
+
+// Extract 2 bits of background alpha from 'struct ncplane', shifted to LSBs.
+static inline unsigned
+ncplane_get_bg_alpha(const struct ncplane* nc){
+  return channels_get_bg_alpha(ncplane_get_channels(nc));
+}
+
+// Extract 24 bits of foreground RGB from 'n', split into subcomponents.
+static inline unsigned
+ncplane_get_fg_rgb(const struct ncplane* n, unsigned* r, unsigned* g, unsigned* b){
+  return channels_get_fg_rgb(ncplane_get_channels(n), r, g, b);
+}
+
+// Extract 24 bits of background RGB from 'n', split into subcomponents.
+static inline unsigned
+ncplane_get_bg_rgb(const struct ncplane* n, unsigned* r, unsigned* g, unsigned* b){
+  return channels_get_bg_rgb(ncplane_get_channels(n), r, g, b);
+}
 
 // Set the current fore/background color using RGB specifications. If the
 // terminal does not support directly-specified 3x8b cells (24-bit "Direct
@@ -495,31 +1034,17 @@ API void ncplane_erase(struct ncplane* n);
 API int ncplane_set_fg_rgb(struct ncplane* n, int r, int g, int b);
 API int ncplane_set_bg_rgb(struct ncplane* n, int r, int g, int b);
 
-// Same, but with rgb assembled into a half-channel (i.e. lower 32 bits).
-API void ncplane_set_fg(struct ncplane* n, uint32_t halfchannel);
-API void ncplane_set_bg(struct ncplane* n, uint32_t halfchannel);
+// Same, but with rgb assembled into a channel (i.e. lower 24 bits).
+API void ncplane_set_fg(struct ncplane* n, uint32_t channel);
+API void ncplane_set_bg(struct ncplane* n, uint32_t channel);
 
-#define CELL_WIDEASIAN_MASK    0x8000000000000000ull
-#define CELL_FGDEFAULT_MASK    0x4000000000000000ull
-#define CELL_FGALPHA_MASK      0x3000000000000000ull
-#define CELL_FG_MASK           0x00ffffff00000000ull
-#define CELL_BGDEFAULT_MASK    0x0000000040000000ull
-#define CELL_BGALPHA_MASK      0x3000000030000000ull
-#define CELL_BG_MASK           0x0000000000ffffffull
+// Use the default color for the foreground/background.
+API void ncplane_set_fg_default(struct ncplane* n);
+API void ncplane_set_bg_default(struct ncplane* n);
 
-static inline uint32_t
-ncplane_fg_rgb(uint64_t channel){
-  return (channel & CELL_FG_MASK) >> 32u;
-}
-
-static inline uint32_t
-ncplane_bg_rgb(uint64_t channel){
-  return (channel & CELL_BG_MASK);
-}
-
-// use the default color for the foreground/background
-API void ncplane_fg_default(struct ncplane* n);
-API void ncplane_bg_default(struct ncplane* n);
+// Set the alpha parameters for ncplane 'n'.
+API int ncplane_set_fg_alpha(struct ncplane* n, int alpha);
+API int ncplane_set_bg_alpha(struct ncplane* n, int alpha);
 
 // Set the specified style bits for the ncplane 'n', whether they're actively
 // supported or not.
@@ -578,233 +1103,63 @@ API int cell_duplicate(struct ncplane* n, cell* targ, const cell* c);
 // Release resources held by the cell 'c'.
 API void cell_release(struct ncplane* n, cell* c);
 
-#define CELL_STYLE_SHIFT     16u
 #define CELL_STYLE_MASK      0xffff0000ul
-// these are used for the style bitfield *after* it is shifted
-#define CELL_STYLE_STANDOUT  0x0001u
-#define CELL_STYLE_UNDERLINE 0x0002u
-#define CELL_STYLE_REVERSE   0x0004u
-#define CELL_STYLE_BLINK     0x0008u
-#define CELL_STYLE_DIM       0x0010u
-#define CELL_STYLE_BOLD      0x0020u
-#define CELL_STYLE_INVIS     0x0040u
-#define CELL_STYLE_PROTECT   0x0080u
-#define CELL_STYLE_ITALIC    0x0100u
+#define CELL_STYLE_STANDOUT  0x00800000ul
+#define CELL_STYLE_UNDERLINE 0x00400000ul
+#define CELL_STYLE_REVERSE   0x00200000ul
+#define CELL_STYLE_BLINK     0x00100000ul
+#define CELL_STYLE_DIM       0x00080000ul
+#define CELL_STYLE_BOLD      0x00040000ul
+#define CELL_STYLE_INVIS     0x00020000ul
+#define CELL_STYLE_PROTECT   0x00010000ul
+#define CELL_STYLE_ITALIC    0x01000000ul
 
 // Set the specified style bits for the cell 'c', whether they're actively
 // supported or not.
 static inline void
 cell_styles_set(cell* c, unsigned stylebits){
-  c->attrword = (c->attrword & ~CELL_STYLE_MASK) |
-                ((stylebits & 0xffff) << CELL_STYLE_SHIFT);
+  c->attrword = (c->attrword & ~CELL_STYLE_MASK) | ((stylebits & CELL_STYLE_MASK));
 }
 
-// Get the style bits, shifted over into the LSBs.
+// Extract the style bits from the cell's attrword.
 static inline unsigned
 cell_styles(const cell* c){
-  return (c->attrword & CELL_STYLE_MASK) >> CELL_STYLE_SHIFT;
+  return c->attrword & CELL_STYLE_MASK;
 }
 
 // Add the specified styles (in the LSBs) to the cell's existing spec, whether
 // they're actively supported or not.
 static inline void
 cell_styles_on(cell* c, unsigned stylebits){
-  c->attrword |= ((stylebits & 0xffff) << CELL_STYLE_SHIFT);
+  c->attrword |= (stylebits & CELL_STYLE_MASK);
 }
 
 // Remove the specified styles (in the LSBs) from the cell's existing spec.
 static inline void
 cell_styles_off(cell* c, unsigned stylebits){
-  c->attrword &= ~((stylebits & 0xffff) << CELL_STYLE_SHIFT);
+  c->attrword &= ~(stylebits & CELL_STYLE_MASK);
 }
 
-static inline unsigned
-cell_rgb_red(uint32_t rgb){
-  return (rgb & 0xff0000ull) >> 16u;
-}
-
-static inline unsigned
-cell_rgb_green(uint32_t rgb){
-  return (rgb & 0xff00ull) >> 8u;
-}
-
-static inline unsigned
-cell_rgb_blue(uint32_t rgb){
-  return (rgb & 0xffull);
-}
-
-static inline uint32_t
-cell_fg_rgb(uint64_t channel){
-  return (channel & CELL_FG_MASK) >> 32u;
-}
-
-static inline uint32_t
-cell_bg_rgb(uint64_t channel){
-  return (channel & CELL_BG_MASK);
-}
-
+// Use the default color for the foreground.
 static inline void
-cell_rgb_get_fg(uint64_t channels, unsigned* r, unsigned* g, unsigned* b){
-  uint32_t fg = cell_fg_rgb(channels);
-  *r = cell_rgb_red(fg);
-  *g = cell_rgb_green(fg);
-  *b = cell_rgb_blue(fg);
+cell_set_fg_default(cell* c){
+  channels_set_fg_default(&c->channels);
 }
 
+// Use the default color for the background.
 static inline void
-cell_rgb_get_bg(uint64_t channels, unsigned* r, unsigned* g, unsigned* b){
-  uint32_t bg = cell_bg_rgb(channels);
-  *r = cell_rgb_red(bg);
-  *g = cell_rgb_green(bg);
-  *b = cell_rgb_blue(bg);
-}
-
-// set the r, g, and b channels for either the foreground or background
-// component of this 64-bit 'channels' variable. 'shift' is the base number
-// of bits to shift r/g/b by; it ought either be 0 (bg) or 32 (fg). each of
-// r, g, and b must be in [0, 256), or -1 is returned. 'mask' is the
-// appropriate r/g/b mask, and 'nodefbit' is the appropriate nodefault bit.
-static inline int
-notcurses_channel_prep(uint64_t* channels, uint64_t mask, unsigned shift,
-                       int r, int g, int b, uint64_t nodefbit){
-  if(r >= 256 || g >= 256 || b >= 256){
-    return -1;
-  }
-  if(r < 0 || g < 0 || b < 0){
-    return -1;
-  }
-  uint64_t rgb = (r & 0xffull) << (shift + 16);
-  rgb |= (g & 0xffull) << (shift + 8);
-  rgb |= (b & 0xffull) << shift;
-  rgb |= nodefbit;
-  *channels = (*channels & ~(mask | nodefbit)) | rgb;
-  return 0;
+cell_set_bg_default(cell* c){
+  channels_set_bg_default(&c->channels);
 }
 
 static inline int
-notcurses_fg_set_alpha(uint64_t* channels, int alpha){
-  if(alpha > 3 || alpha < 0){
-    return -1;
-  }
-  *channels = (*channels & ~CELL_FGALPHA_MASK) | ((uint64_t)alpha << 60);
-  return 0;
+cell_set_fg_alpha(cell* c, int alpha){
+  return channels_set_fg_alpha(&c->channels, alpha);
 }
 
 static inline int
-notcurses_bg_set_alpha(uint64_t* channels, int alpha){
-  if(alpha > 3 || alpha < 0){
-    return -1;
-  }
-  *channels = (*channels & ~CELL_BGALPHA_MASK) | ((uint64_t)alpha << 28);
-  return 0;
-}
-
-static inline int
-notcurses_fg_alpha(uint64_t channels){
-  return (channels & CELL_BGALPHA_MASK) >> 60u;
-}
-
-static inline int
-notcurses_bg_alpha(uint64_t channels){
-  return (channels & CELL_BGALPHA_MASK) >> 28u;
-}
-
-static inline int
-notcurses_fg_prep(uint64_t* channels, int r, int g, int b){
-  return notcurses_channel_prep(channels, CELL_FG_MASK, 32, r, g, b, CELL_FGDEFAULT_MASK);
-}
-
-static inline int
-notcurses_bg_prep(uint64_t* channels, int r, int g, int b){
-  return notcurses_channel_prep(channels, CELL_BG_MASK, 0, r, g, b, CELL_BGDEFAULT_MASK);
-}
-
-static inline void
-notcurses_fg_default_prep(uint64_t* channels){
-  *channels &= ~(CELL_FGDEFAULT_MASK);
-}
-
-static inline void
-notcurses_bg_default_prep(uint64_t* channels){
-  *channels &= ~(CELL_BGDEFAULT_MASK);
-}
-
-static inline void
-cell_set_fg(cell* c, unsigned r, unsigned g, unsigned b){
-  notcurses_fg_prep(&c->channels, r, g, b);
-}
-
-static inline void
-cell_set_bg(cell* c, unsigned r, unsigned g, unsigned b){
-  notcurses_bg_prep(&c->channels, r, g, b);
-}
-
-static inline void
-cell_get_fg(const cell* c, unsigned* r, unsigned* g, unsigned* b){
-  *r = cell_rgb_red(cell_fg_rgb(c->channels));
-  *g = cell_rgb_green(cell_fg_rgb(c->channels));
-  *b = cell_rgb_blue(cell_fg_rgb(c->channels));
-}
-
-static inline void
-cell_get_bg(const cell* c, unsigned* r, unsigned* g, unsigned* b){
-  *r = cell_rgb_red(cell_bg_rgb(c->channels));
-  *g = cell_rgb_green(cell_bg_rgb(c->channels));
-  *b = cell_rgb_blue(cell_bg_rgb(c->channels));
-}
-
-// use the default color for the foreground
-static inline void
-cell_fg_default(cell* c){
-  notcurses_fg_default_prep(&c->channels);
-}
-
-// is the cell using the terminal's default foreground color for its foreground?
-static inline bool
-cell_fg_default_p(const cell* c){
-  return !(c->channels & CELL_FGDEFAULT_MASK);
-}
-
-// use the default color for the background
-static inline void
-cell_bg_default(cell* c){
-  notcurses_bg_default_prep(&c->channels);
-}
-
-static inline bool
-notcurses_fg_default_p(uint64_t channels){
-  return !(channels & CELL_FGDEFAULT_MASK);
-}
-
-static inline bool
-notcurses_bg_default_p(uint64_t channels){
-  return !(channels & CELL_BGDEFAULT_MASK);
-}
-
-// is the cell using the terminal's default background color for its background?
-static inline bool
-cell_bg_default_p(const cell* c){
-  return !(c->channels & CELL_BGDEFAULT_MASK);
-}
-
-static inline int
-cell_fg_set_alpha(cell* c, int alpha){
-  return notcurses_fg_set_alpha(&c->channels, alpha);
-}
-
-static inline int
-cell_bg_set_alpha(cell *c, int alpha){
-  return notcurses_bg_set_alpha(&c->channels, alpha);
-}
-
-static inline int
-cell_fg_alpha(const cell* c){
-  return notcurses_fg_alpha(c->channels);
-}
-
-static inline int
-cell_bg_alpha(const cell* c){
-  return notcurses_bg_alpha(c->channels);
+cell_set_bg_alpha(cell* c, int alpha){
+  return channels_set_bg_alpha(&c->channels, alpha);
 }
 
 // does the cell contain an East Asian Wide codepoint?
@@ -931,12 +1286,21 @@ ncplane_double_box_sized(struct ncplane* n, uint32_t attr, uint64_t channels,
 // multimedia functionality
 struct AVFrame;
 
-// open a visual (image or video), associating it with the specified ncplane.
-// returns NULL on any error, writing the AVError to 'averr'.
+// Open a visual (image or video), associating it with the specified ncplane.
+// Returns NULL on any error, writing the AVError to 'averr'.
 API struct ncvisual* ncplane_visual_open(struct ncplane* nc, const char* file,
                                          int* averr);
 
-// destroy an ncvisual. rendered elements will not be disrupted, but the visual
+// Open a visual, extract a codec and parameters, and create a new plane
+// suitable for its display at 'y','x'. If there is sufficient room to display
+// the visual in its native size, the new plane will be exactly that large.
+// Otherwise, the visual will be scaled to the available space. If 'stretch' is
+// false, its aspect ratio will be maintained. Otherwise, the visual will be
+// scaled to fill the maximum possible new plane.
+API struct ncvisual* ncvisual_open_plane(struct notcurses* nc, const char* file,
+                                         int* averr, int y, int x, bool stretch);
+
+// Destroy an ncvisual. Rendered elements will not be disrupted, but the visual
 // can be neither decoded nor rendered any further.
 API void ncvisual_destroy(struct ncvisual* ncv);
 
@@ -950,9 +1314,21 @@ API struct AVFrame* ncvisual_decode(struct ncvisual* nc, int* averr);
 // to the size of the ncplane at ncplane_visual_open() time.
 API int ncvisual_render(const struct ncvisual* ncv);
 
-// stream the entirety of the media, according to its own timing.
-// blocking, obviously. pretty raw; beware.
-API int ncvisual_stream(struct notcurses* nc, struct ncvisual* ncv, int* averr);
+// Called for each frame rendered from 'ncv'. If anything but 0 is returned,
+// the streaming operation ceases immediately, and that value is propagated out.
+typedef int (*streamcb)(struct notcurses* nc, struct ncvisual* ncv);
+
+// Shut up and display my frames! Provide as an argument to ncvisual_stream().
+static inline int
+ncvisual_simple_streamer(struct notcurses* nc, struct ncvisual* ncv __attribute__ ((unused))){
+  return notcurses_render(nc);
+}
+
+// Stream the entirety of the media, according to its own timing. Blocking,
+// obviously. streamer may be NULL; it is otherwise called for each frame, and
+// its return value handled as outlined for stream cb. Pretty raw; beware.
+API int ncvisual_stream(struct notcurses* nc, struct ncvisual* ncv,
+                        int* averr, streamcb streamer);
 
 // A panelreel is an notcurses region devoted to displaying zero or more
 // line-oriented, contained panels between which the user may navigate. If at
@@ -999,6 +1375,7 @@ typedef struct panelreel_options {
   unsigned bordermask; // bitfield; 1s will not be drawn (see bordermaskbits)
   cell borderattr;     // attributes used for panelreel border
   unsigned tabletmask; // bitfield; same as bordermask but for tablet borders
+  // FIXME should be attrword + channels, as we don't use gcluster here
   cell tabletattr;     // attributes used for tablet borders
   cell focusedattr;    // attributes used for focused tablet borders, no color!
   uint64_t bgchannel;  // background colors
@@ -1084,6 +1461,58 @@ API struct tablet* panelreel_prev(struct panelreel* pr);
 // Destroy a panelreel allocated with panelreel_create(). Does not destroy the
 // underlying WINDOW. Returns non-zero on failure.
 API int panelreel_destroy(struct panelreel* pr);
+
+API void* tablet_userptr(struct tablet* t);
+API const void* tablet_userptr_const(const struct tablet* t);
+
+#define PREFIXSTRLEN 7  // Does not include a '\0' (xxx.xxU)
+#define IPREFIXSTRLEN 8 //  Does not include a '\0' (xxxx.xxU)
+#define BPREFIXSTRLEN 9  // Does not include a '\0' (xxxx.xxUi), i == prefix
+
+// A bit of the nasties here to stringize our preprocessor tokens just now
+// #defined, making them usable as printf(3) specifiers.
+#define STRHACK1(x) #x
+#define STRHACK2(x) STRHACK1(x)
+#define PREFIXFMT "%" STRHACK2(PREFIXSTRLEN) "s"
+#define IPREFIXFMT "%" STRHACK2(IPREFIXSTRLEN) "s"
+#define BPREFIXFMT "%" STRHACK2(BPREFIXSTRLEN) "s"
+
+// Takes an arbitrarily large number, and prints it into a fixed-size buffer by
+// adding the necessary SI suffix. Usually, pass a |[B]PREFIXSTRLEN+1|-sized
+// buffer to generate up to [B]PREFIXSTRLEN characters. The characteristic can
+// occupy up through |mult-1| characters (3 for 1000, 4 for 1024). The mantissa
+// can occupy either zero or two characters.
+//
+// Floating-point is never used, because an IEEE758 double can only losslessly
+// represent integers through 2^53-1.
+//
+// 2^64-1 is 18446744073709551615, 18.45E(xa). KMGTPEZY thus suffice to handle
+// a 89-bit uintmax_t. Beyond Z(etta) and Y(otta) lie lands unspecified by SI.
+//
+// val: value to print
+// decimal: scaling. '1' if none has taken place.
+// buf: buffer in which string will be generated
+// omitdec: inhibit printing of all-0 decimal portions
+// mult: base of suffix system (almost always 1000 or 1024)
+// uprefix: character to print following suffix ('i' for kibibytes basically).
+//   only printed if suffix is actually printed (input >= mult).
+API const char *enmetric(uintmax_t val, unsigned decimal, char *buf,
+                         int omitdec, unsigned mult, int uprefix);
+
+// Mega, kilo, gigabytes. Use PREFIXSTRLEN + 1.
+static inline const char *
+qprefix(uintmax_t val, unsigned decimal, char *buf, int omitdec){
+  return enmetric(val, decimal, buf, omitdec, 1000, '\0');
+}
+
+// Mibi, kebi, gibibytes. Use BPREFIXSTRLEN + 1.
+static inline const char *
+bprefix(uintmax_t val, unsigned decimal, char *buf, int omitdec){
+  return enmetric(val, decimal, buf, omitdec, 1024, 'i');
+}
+
+API void notcurses_cursor_enable(struct notcurses* nc);
+API void notcurses_cursor_disable(struct notcurses* nc);
 
 #undef API
 

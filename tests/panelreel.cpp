@@ -4,14 +4,15 @@
 class PanelReelTest : public :: testing::Test {
  protected:
   void SetUp() override {
-    setlocale(LC_ALL, nullptr);
+    setlocale(LC_ALL, "");
     if(getenv("TERM") == nullptr){
       GTEST_SKIP();
     }
     notcurses_options nopts{};
     nopts.inhibit_alternate_screen = true;
-    nopts.outfp = fopen("/dev/tty", "wb");
-    nc_ = notcurses_init(&nopts);
+    outfp_ = fopen("/dev/tty", "wb");
+    ASSERT_NE(nullptr, outfp_);
+    nc_ = notcurses_init(&nopts, outfp_);
     ASSERT_NE(nullptr, nc_);
     n_ = notcurses_stdplane(nc_);
     ASSERT_NE(nullptr, n_);
@@ -22,10 +23,14 @@ class PanelReelTest : public :: testing::Test {
     if(nc_){
       EXPECT_EQ(0, notcurses_stop(nc_));
     }
+    if(outfp_){
+      fclose(outfp_);
+    }
   }
 
   struct notcurses* nc_{};
   struct ncplane* n_{};
+  FILE* outfp_{};
 };
 
 
@@ -145,6 +150,20 @@ TEST_F(PanelReelTest, NoTabletBorder) {
   ASSERT_NE(nullptr, pr);
 }
 
+TEST_F(PanelReelTest, NoTopBottomBorder) {
+  panelreel_options p{};
+  p.bordermask = NCBOXMASK_TOP | NCBOXMASK_BOTTOM;
+  struct panelreel* pr = panelreel_create(n_, &p, -1);
+  ASSERT_NE(nullptr, pr);
+}
+
+TEST_F(PanelReelTest, NoSideBorders) {
+  panelreel_options p{};
+  p.bordermask = NCBOXMASK_LEFT | NCBOXMASK_RIGHT;
+  struct panelreel* pr = panelreel_create(n_, &p, -1);
+  ASSERT_NE(nullptr, pr);
+}
+
 TEST_F(PanelReelTest, BadTabletBorderBitsRejected) {
   panelreel_options p{};
   p.tabletmask = NCBOXMASK_LEFT * 2;
@@ -232,7 +251,7 @@ TEST_F(PanelReelTest, SubwinNoOffsetGeom) {
 
 TEST_F(PanelReelTest, TransparentBackground) {
   panelreel_options p{};
-  notcurses_bg_set_alpha(&p.bgchannel, 3);
+  channels_set_bg_alpha(&p.bgchannel, 3);
   struct panelreel* pr = panelreel_create(n_, &p, -1);
   ASSERT_NE(nullptr, pr);
   // FIXME

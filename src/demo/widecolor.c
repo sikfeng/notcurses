@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <ctype.h>
-#include <curses.h>
+#include <wctype.h>
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
@@ -81,11 +81,11 @@ wall_p(const struct ncplane* n, const cell* c){
 static inline void
 lighten(cell* c){
   unsigned r, g, b;
-  cell_get_fg(c, &r, &g, &b);
+  cell_get_fg_rgb(c, &r, &g, &b);
   r += (255 - r) / 3;
   g += (255 - g) / 3;
   b += (255 - b) / 3;
-  cell_set_fg(c, r, g, b);
+  cell_set_fg_rgb(c, r, g, b);
 }
 
 static int
@@ -217,12 +217,11 @@ snake_thread(void* vnc){
   y = (random() % (dimy / 2)) + (dimy / 2);
   cell head = CELL_TRIVIAL_INITIALIZER;
   uint64_t channels = 0;
-  notcurses_fg_prep(&channels, 255, 255, 255);
+  channels_set_fg_rgb(&channels, 255, 255, 255);
+  channels_set_bg_rgb(&channels, 20, 20, 20);
   cell_prime(n, &head, "א", 0, channels);
   cell c = CELL_TRIVIAL_INITIALIZER;
-  cell_bg_default(&head);
-  struct timespec iterdelay;
-  timespec_div(&demodelay, 10, &iterdelay);
+  struct timespec iterdelay = { .tv_sec = 0, .tv_nsec = 1000000000ul / 20, };
   while(true){
     pthread_testcancel();
     get_surrounding_cells(n, lightup, y, x);
@@ -284,15 +283,14 @@ message(struct ncplane* n, int maxy, int maxx, int num, int total,
         int bytes_out, int egs_out, int cols_out){
   cell c = CELL_TRIVIAL_INITIALIZER;
   cell_load(n, &c, " ");
-  cell_fg_set_alpha(&c, 3);
-  cell_bg_set_alpha(&c, 3);
-  ncplane_set_background(n, &c);
+  cell_set_bg_alpha(&c, CELL_ALPHA_TRANS);
+  ncplane_set_default(n, &c);
   cell_release(n, &c);
   uint64_t channels = 0;
   ncplane_set_fg_rgb(n, 64, 128, 240);
   ncplane_set_bg_rgb(n, 32, 64, 32);
-  notcurses_fg_prep(&channels, 255, 255, 255);
-  notcurses_bg_default_prep(&channels);
+  channels_set_fg_rgb(&channels, 255, 255, 255);
+  channels_set_bg_rgb(&channels, 32, 64, 32);
   ncplane_cursor_move_yx(n, 2, 0);
   if(ncplane_rounded_box(n, 0, channels, 4, 56, 0)){
     return -1;
@@ -301,18 +299,18 @@ message(struct ncplane* n, int maxy, int maxx, int num, int total,
   ncplane_cursor_move_yx(n, 4, 17);
   ncplane_putegc(n, "┬", 0, 0, NULL);
   ncplane_cursor_move_yx(n, 5, 17);
-  ncplane_putegc(n, "│", 0, 0, NULL);
+  ncplane_putegc(n, "│", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 6, 17);
-  ncplane_putegc(n, "╰", 0, 0, NULL);
+  ncplane_putegc(n, "╰", 0, channels, NULL);
   cell hl = CELL_TRIVIAL_INITIALIZER;
-  cell_prime(n, &hl, "━", 0, channels);
+  cell_prime(n, &hl, "─", 0, channels);
   ncplane_hline(n, &hl, 57 - 18 - 1);
   ncplane_cursor_move_yx(n, 6, 56);
-  ncplane_putegc(n, "╯", 0, 0, NULL);
+  ncplane_putegc(n, "╯", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 5, 56);
-  ncplane_putegc(n, "│", 0, 0, NULL);
+  ncplane_putegc(n, "│", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 4, 56);
-  ncplane_putegc(n, "┤", 0, 0, NULL);
+  ncplane_putegc(n, "┤", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 5, 18);
   ncplane_styles_on(n, CELL_STYLE_ITALIC);
   ncplane_printf(n, " bytes: %05d EGCs: %05d cols: %05d ", bytes_out, egs_out, cols_out);
@@ -320,20 +318,20 @@ message(struct ncplane* n, int maxy, int maxx, int num, int total,
 
   // top handle
   ncplane_cursor_move_yx(n, 2, 3);
-  ncplane_putegc(n, "╨", 0, 0, NULL);
+  ncplane_putegc(n, "╨", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 1, 3);
-  ncplane_putegc(n, "║", 0, 0, NULL);
+  ncplane_putegc(n, "║", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 0, 3);
-  ncplane_putegc(n, "╔", 0, 0, NULL);
+  ncplane_putegc(n, "╔", 0, channels, NULL);
   cell_prime(n, &hl, "═", 0, channels);
   ncplane_hline(n, &hl, 20 - 4 - 1);
   cell_release(n, &hl);
   ncplane_cursor_move_yx(n, 0, 19);
-  ncplane_putegc(n, "╗", 0, 0, NULL);
+  ncplane_putegc(n, "╗", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 1, 19);
-  ncplane_putegc(n, "║", 0, 0, NULL);
+  ncplane_putegc(n, "║", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 2, 19);
-  ncplane_putegc(n, "╨", 0, 0, NULL);
+  ncplane_putegc(n, "╨", 0, channels, NULL);
   ncplane_cursor_move_yx(n, 1, 4);
   ncplane_styles_on(n, CELL_STYLE_ITALIC);
   ncplane_printf(n, " %03dx%03d (%d/%d) ", maxx, maxy, num + 1, total);
@@ -588,14 +586,15 @@ int widecolor_demo(struct notcurses* nc){
   for(i = 0 ; i < screens ; ++i){
     wchar_t key = NCKEY_INVALID;
     cell c;
+    struct timespec screenend;
+    clock_gettime(CLOCK_MONOTONIC, &screenend);
+    ns_to_timespec(timespec_to_ns(&screenend) + timespec_to_ns(&demodelay), &screenend);
     do{ // (re)draw a screen
       const int start = starts[i];
       int step = steps[i];
       const int rollover = 256 / ((step & 0xff) | ((step & 0xff00) >> 8u)
                                   | ((step & 0xff0000) >> 16u));
       int rollcount = 0; // number of times we've added this step
-      int dimy, dimx;
-      notcurses_resize(nc, &dimy, &dimx);
       cell_init(&c);
       int y, x, maxy, maxx;
       ncplane_dim_yx(n, &maxy, &maxx);
@@ -611,16 +610,14 @@ int widecolor_demo(struct notcurses* nc){
       do{ // we fill up the entire screen, however large, walking our strtable
         s = strs;
         uint64_t channels = 0;
-        notcurses_bg_prep(&channels, 20, 20, 20);
+        channels_set_bg_rgb(&channels, 20, 20, 20);
         for(s = strs ; *s ; ++s){
           size_t idx = 0;
           ncplane_cursor_yx(n, &y, &x);
 // fprintf(stderr, "%02d %s\n", y, *s);
           while((*s)[idx]){ // each multibyte char of string
-            if(notcurses_fg_prep(&channels,
-                                 cell_rgb_red(rgb),
-                                 cell_rgb_green(rgb),
-                                 cell_rgb_blue(rgb))){
+            if(channels_set_fg_rgb(&channels, channel_get_r(rgb),
+                                   channel_get_g(rgb), channel_get_b(rgb))){
               return -1;
             }
             if(y >= maxy || x >= maxx){
@@ -686,11 +683,22 @@ int widecolor_demo(struct notcurses* nc){
       pthread_t tid;
       pthread_create(&tid, NULL, snake_thread, nc);
       do{
-        key = notcurses_getc_blocking(nc);
+        struct timespec left, cur;
+        clock_gettime(CLOCK_MONOTONIC, &cur);
+        timespec_subtract(&left, &screenend, &cur);
+        key = notcurses_getc(nc, &left, NULL);
+        clock_gettime(CLOCK_MONOTONIC, &cur);
+        int64_t ns = timespec_subtract_ns(&cur, &screenend);
+        if(ns > 0){
+          break;
+        }
       }while(key < 0);
       pthread_cancel(tid);
       pthread_join(tid, NULL);
       ncplane_destroy(mess);
+      if(key == NCKEY_RESIZE){
+        notcurses_resize(nc, NULL, NULL);
+      }
     }while(key == NCKEY_RESIZE);
   }
   return 0;

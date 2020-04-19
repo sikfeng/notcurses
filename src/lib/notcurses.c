@@ -613,7 +613,7 @@ interrogate_terminfo(notcurses* nc, const notcurses_options* opts, int* dimy, in
       return -1;
     }
   }
-  if(prep_special_keys(nc)){
+  if(input_start(nc)){
     return -1;
   }
   // Some terminals cannot combine certain styles with colors. Don't advertise
@@ -870,10 +870,11 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
   memcpy(&modtermios, &ret->tpreserved, sizeof(modtermios));
   // see termios(3). disabling ECHO and ICANON means input will not be echoed
   // to the screen, input is made available without enter-based buffering, and
-  // line editing is disabled. this is equivalent to cfmakeraw().
+  // line editing is disabled. this is equivalent to cfmakeraw() (save OPOST).
   modtermios.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
   modtermios.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-  modtermios.c_oflag &= ~OPOST;
+  // retain enter->CR+LF mapping (not just LF). raw disables OPOST.
+  modtermios.c_oflag |= OPOST;
   modtermios.c_cflag &= ~(CSIZE | PARENB);
   modtermios.c_cflag |= CS8;
   if(tcsetattr(ret->ttyfd, TCSADRAIN, &modtermios)){
@@ -992,7 +993,7 @@ int notcurses_stop(notcurses* nc){
     egcpool_dump(&nc->pool);
     free(nc->lastframe);
     free(nc->rstate.mstream);
-    input_free_esctrie(&nc->inputescapes);
+    input_stop(nc);
     stash_stats(nc);
     if(!nc->suppress_banner){
       double avg = 0;

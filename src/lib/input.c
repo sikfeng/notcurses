@@ -376,7 +376,8 @@ char32_t notcurses_getc(notcurses* nc, const struct timespec *ts,
   return r;
 }
 
-int prep_special_keys(notcurses* nc){
+static int
+prep_special_keys(notcurses* nc){
   static const struct {
     const char* tinfo;
     char32_t key;
@@ -489,5 +490,27 @@ int prep_special_keys(notcurses* nc){
     fprintf(stderr, "Couldn't add support for %s\n", k->tinfo);
     return -1;
   }
+  return 0;
+}
+
+// watches for input, adding it to queue, and trans
+static void*
+input_thread(void* vnc){
+}
+
+int input_start(notcurses* nc){
+  if(prep_special_keys(nc)){
+    return -1;
+  }
+  if(pthread_create(&nc->inputtid, NULL, input_thread, nc)){
+    input_free_esctrie(&nc->inputescapes);
+    return -1;
+  }
+  return 0;
+}
+
+int input_stop(notcurses* nc){
+  // FIXME kill thread
+  input_free_esctrie(&nc->inputescapes);
   return 0;
 }

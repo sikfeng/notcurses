@@ -405,14 +405,16 @@ ncplane_stdplane_const(const struct ncplane* n){
   return notcurses_stdplane_const(n->nc);
 }
 
-// load all known special keys from terminfo, and build the input sequence trie
-int prep_special_keys(notcurses* nc);
-
-// free up the input escapes trie
-void input_free_esctrie(struct esctrie** trie);
-
 // initialize libav
 int ncvisual_init(int loglevel);
+
+// load all known special keys from terminfo, build the input sequence trie,
+// and launch the input thread. input_start() expects us to be in raw mode, at
+// least with regards to input.
+int input_start(notcurses* nc);
+
+// stop the input thread, and free all structures.
+int input_stop(notcurses* nc);
 
 static inline int
 fbcellidx(int row, int rowlen, int col){

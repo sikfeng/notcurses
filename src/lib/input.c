@@ -1,11 +1,23 @@
+#include "internal.h"
 #include <ncurses.h> // needed for some definitions, see terminfo(3ncurses)
 #include <term.h>
+#include <ctype.h>
+#include <signal.h>
 #include <sys/poll.h>
-#include "internal.h"
+
+// CSI (Control Sequence Indicators) originate in the terminal itself, and are
+// not reported in their bare form to the user. For our purposes, these usually
+// indicate a mouse event.
+#define CSIPREFIX "\x1b[<"
+static const char32_t NCKEY_CSI = 1;
 
 static const unsigned char ESC = 0x1b; // 27
 
-sig_atomic_t resize_seen = 0;
+static sig_atomic_t resize_seen;
+
+void sigwinch_handler(int signo){
+  resize_seen = signo;
+}
 
 static inline int
 pop_input_keypress(notcurses* nc){
@@ -30,7 +42,7 @@ unpop_keypress(notcurses* nc, int kpress){
 
 // we assumed escapes can only be composed of 7-bit chars
 typedef struct esctrie {
-  int special;            // composed key terminating here
+  char32_t special;       // composed key terminating here
   struct esctrie** trie;  // if non-NULL, next level of radix-128 trie
 } esctrie;
 
@@ -61,13 +73,13 @@ void input_free_esctrie(esctrie** eptr){
 }
 
 static int
-notcurses_add_input_escape(notcurses* nc, const char* esc, wchar_t special){
+notcurses_add_input_escape(notcurses* nc, const char* esc, char32_t special){
   if(esc[0] != ESC || strlen(esc) < 2){ // assume ESC prefix + content
     fprintf(stderr, "Not an escape: %s (0x%x)\n", esc, special);
     return -1;
   }
-  if(!wchar_supppuab_p(special)){
-    fprintf(stderr, "Not a supplementary-b PUA char: %lc (0x%x)\n", special, special);
+  if(!nckey_supppuab_p(special) && special != NCKEY_CSI){
+    fprintf(stderr, "Not a supplementary-b PUA char: %u (0x%x)\n", special, special);
     return -1;
   }
   esctrie** cur = &nc->inputescapes;
@@ -92,29 +104,112 @@ notcurses_add_input_escape(notcurses* nc, const char* esc, wchar_t special){
       cur = &(*cur)->trie[validate];
     }
   }while(*esc);
+  // it appears that multiple keys can be mapped to the same escape string. as
+  // an example, see "kend" and "kc1" in st ("simple term" from suckless) :/.
   if((*cur)->special != NCKEY_INVALID){ // already had one here!
-    fprintf(stderr, "Already added escape (got 0x%x, wanted 0x%x)\n", (*cur)->special, special);
-    return -1;
+    fprintf(stderr, "Warning: already added escape (got 0x%x, wanted 0x%x)\n", (*cur)->special, special);
+  }else{
+    (*cur)->special = special;
   }
-  (*cur)->special = special;
   return 0;
+}
+
+// We received the CSI prefix. Extract the data payload.
+static char32_t
+handle_csi(notcurses* nc, ncinput* ni){
+  enum {
+    PARAM1,  // reading first param (button + modifiers) plus delimiter
+    PARAM2,  // reading second param (x coordinate) plus delimiter
+    PARAM3,  // reading third param (y coordinate) plus terminator
+  } state = PARAM1;
+  int param = 0; // numeric translation of param thus far
+  char32_t id = (char32_t)-1;
+  while(nc->inputbuf_occupied){
+    int candidate = pop_input_keypress(nc);
+    if(state == PARAM1){
+      if(candidate == ';'){
+        state = PARAM2;
+        // modifiers: 32 (motion) 16 (control) 8 (alt) 4 (shift)
+        // buttons 4, 5, 6, 7: adds 64
+        // buttons 8, 9, 10, 11: adds 128
+        if(param >= 0 && param < 64){
+          if(param % 4 == 3){
+            id = NCKEY_RELEASE;
+          }else{
+            id = NCKEY_BUTTON1 + (param % 4);
+          }
+        }else if(param >= 64 && param < 128){
+          id = NCKEY_BUTTON4 + (param % 4);
+        }else if(param >= 128 && param < 192){
+          id = NCKEY_BUTTON8 + (param % 4);
+        }else{
+          break;
+        }
+        ni->ctrl = param & 0x10;
+        ni->alt = param & 0x08;
+        ni->shift = param & 0x04;
+        param = 0;
+      }else if(isdigit(candidate)){
+        param *= 10;
+        param += candidate - '0';
+      }else{
+        break;
+      }
+    }else if(state == PARAM2){
+      if(candidate == ';'){
+        state = PARAM3;
+        if(param == 0){
+          break;
+        }
+        if(ni){
+          ni->x = param - 1;
+        }
+        param = 0;
+      }else if(isdigit(candidate)){
+        param *= 10;
+        param += candidate - '0';
+      }else{
+        break;
+      }
+    }else if(state == PARAM3){
+      if(candidate == 'm' || candidate == 'M'){
+        if(candidate == 'm'){
+          id = NCKEY_RELEASE;
+        }
+        if(param == 0){
+          break;
+        }
+        if(ni){
+          ni->y = param - 1;
+          ni->id = id;
+        }
+        return id;
+      }else if(isdigit(candidate)){
+        param *= 10;
+        param += candidate - '0';
+      }else{
+        break;
+      }
+    }
+  }
+  // FIXME ungetc on failure! walk trie backwards or something
+  return (char32_t)-1;
 }
 
 // add the keypress we just read to our input queue (assuming there is room).
 // if there is a full UTF8 codepoint or keystroke (composed or otherwise),
 // return it, and pop it from the queue.
-static wchar_t
-handle_getc(notcurses* nc, int kpress){
-// fprintf(stderr, "KEYPRESS: %d\n", kpress);
+static char32_t
+handle_getc(notcurses* nc, int kpress, ncinput* ni){
+//fprintf(stderr, "KEYPRESS: %d\n", kpress);
   if(kpress < 0){
     return -1;
   }
   if(kpress == ESC){
-    // FIXME delay a little waiting for more?
     const esctrie* esc = nc->inputescapes;
+    int candidate = 0;
     while(esc && esc->special == NCKEY_INVALID && nc->inputbuf_occupied){
-      int candidate = pop_input_keypress(nc);
-//fprintf(stderr, "CANDIDATE: %c\n", candidate);
+      candidate = pop_input_keypress(nc);
       if(esc->trie == NULL){
         esc = NULL;
       }else if(candidate >= 0x80 || candidate < 0){
@@ -123,9 +218,19 @@ handle_getc(notcurses* nc, int kpress){
         esc = esc->trie[candidate];
       }
     }
-//fprintf(stderr, "esc? %c special: %d\n", esc ? 'y' : 'n', esc ? esc->special : NCKEY_INVALID);
     if(esc && esc->special != NCKEY_INVALID){
+      if(esc->special == NCKEY_CSI){
+        return handle_csi(nc, ni);
+      }
       return esc->special;
+    }
+    // interpret it as alt + candidate FIXME broken for first char matching
+    // trie, second char not -- will read as alt+second char...
+    if(candidate > 0 && candidate < 0x80){
+      if(ni){
+        ni->alt = true;
+      }
+      return candidate;
     }
     // FIXME ungetc on failure! walk trie backwards or something
   }
@@ -148,7 +253,12 @@ handle_getc(notcurses* nc, int kpress){
   }
   cpoint[cpointlen] = '\0';
   wchar_t w;
-  if(mbtowc(&w, cpoint, cpointlen) < 0){
+  mbstate_t mbstate;
+  memset(&mbstate, 0, sizeof(mbstate));
+  // FIXME how the hell does this work with 16-bit wchar_t?
+  size_t r;
+  if((r = mbrtowc(&w, cpoint, cpointlen, &mbstate)) == (size_t)-1 ||
+      r == (size_t)-2){
     return (wchar_t)-1;
   }
   return w;
@@ -160,7 +270,7 @@ static int
 block_on_input(FILE* fp, const struct timespec* ts, sigset_t* sigmask){
   struct pollfd pfd = {
     .fd = fileno(fp),
-    .events = POLLIN | POLLRDHUP,
+    .events = POLLIN,
     .revents = 0,
   };
   sigset_t scratchmask;
@@ -172,6 +282,9 @@ block_on_input(FILE* fp, const struct timespec* ts, sigset_t* sigmask){
   sigdelset(sigmask, SIGINT);
   sigdelset(sigmask, SIGQUIT);
   sigdelset(sigmask, SIGSEGV);
+#ifdef POLLRDHUP
+  pfd.events |= POLLRDHUP;
+#endif
   return ppoll(&pfd, 1, ts, sigmask);
 }
 
@@ -180,8 +293,8 @@ input_queue_full(const notcurses* nc){
   return nc->inputbuf_occupied == sizeof(nc->inputbuf) / sizeof(*nc->inputbuf);
 }
 
-static wchar_t
-handle_input(notcurses* nc){
+static char32_t
+handle_input(notcurses* nc, ncinput* ni){
   int r;
   // getc() returns unsigned chars cast to ints
   while(!input_queue_full(nc) && (r = getc(nc->ttyinfp)) >= 0){
@@ -202,19 +315,65 @@ handle_input(notcurses* nc){
     return -1;
   }
   r = pop_input_keypress(nc);
-  return handle_getc(nc, r);
+  return handle_getc(nc, r, ni);
 }
 
-// infp has always been set non-blocking
-wchar_t notcurses_getc(notcurses* nc, const struct timespec *ts, sigset_t* sigmask){
+static char32_t
+handle_ncinput(notcurses* nc, ncinput* ni){
+  if(ni){
+    memset(ni, 0, sizeof(*ni));
+  }
+  char32_t r = handle_input(nc, ni);
+  // ctrl (*without* alt) + letter maps to [1..26], and is independent of shift
+  // FIXME need to distinguish between:
+  //  - Enter and ^J
+  //  - Tab and ^I
+  bool ctrl = r > 0 && r <= 26;
+  if(ctrl){
+    if(r == '\n' || r == '\r'){
+      r = NCKEY_ENTER;
+      ctrl = false;
+    }else if(r == '\t'){ // FIXME infocmp: ht=^I, use that
+      ctrl = false;
+    }else{
+      r += 'A' - 1;
+    }
+  }
+  if(ni){
+    ni->id = r;
+    if(ctrl){
+      ni->ctrl = true;
+    }
+    // FIXME set shift
+  }
+  return r;
+}
+
+// helper so we can do counter increment at a single location
+static inline char32_t
+notcurses_prestamp(notcurses* nc, const struct timespec *ts,
+                            sigset_t* sigmask, ncinput* ni){
   errno = 0;
-  int r = handle_input(nc);
-  if(r > 0){
+  char32_t r = handle_ncinput(nc, ni);
+  if(r == (char32_t)-1){
+    if(errno == EAGAIN || errno == EWOULDBLOCK){
+      block_on_input(nc->ttyinfp, ts, sigmask);
+      r = handle_ncinput(nc, ni);
+    }
     return r;
   }
-  if(errno == EAGAIN || errno == EWOULDBLOCK){
-    block_on_input(nc->ttyinfp, ts, sigmask);
-    return handle_input(nc);
+  return r;
+}
+
+// infp has already been set non-blocking
+char32_t notcurses_getc(notcurses* nc, const struct timespec *ts,
+                        sigset_t* sigmask, ncinput* ni){
+  char32_t r = notcurses_prestamp(nc, ts, sigmask, ni);
+  if(r != (char32_t)-1){
+    uint64_t stamp = nc->input_events++; // need increment even if !ni
+    if(ni){
+      ni->seqnum = stamp;
+    }
   }
   return r;
 }
@@ -222,7 +381,7 @@ wchar_t notcurses_getc(notcurses* nc, const struct timespec *ts, sigset_t* sigma
 int prep_special_keys(notcurses* nc){
   static const struct {
     const char* tinfo;
-    wchar_t key;
+    char32_t key;
   } keys[] = {
     { .tinfo = "kcub1", .key = NCKEY_LEFT, },
     { .tinfo = "kcuf1", .key = NCKEY_RIGHT, },
@@ -266,6 +425,35 @@ int prep_special_keys(notcurses* nc){
     { .tinfo = "kf28",  .key = NCKEY_F28, },
     { .tinfo = "kf29",  .key = NCKEY_F29, },
     { .tinfo = "kf30",  .key = NCKEY_F30, },
+    { .tinfo = "kf31",  .key = NCKEY_F31, },
+    { .tinfo = "kf32",  .key = NCKEY_F32, },
+    { .tinfo = "kf33",  .key = NCKEY_F33, },
+    { .tinfo = "kf34",  .key = NCKEY_F34, },
+    { .tinfo = "kf35",  .key = NCKEY_F35, },
+    { .tinfo = "kf36",  .key = NCKEY_F36, },
+    { .tinfo = "kf37",  .key = NCKEY_F37, },
+    { .tinfo = "kf38",  .key = NCKEY_F38, },
+    { .tinfo = "kf39",  .key = NCKEY_F39, },
+    { .tinfo = "kf40",  .key = NCKEY_F40, },
+    { .tinfo = "kf41",  .key = NCKEY_F41, },
+    { .tinfo = "kf42",  .key = NCKEY_F42, },
+    { .tinfo = "kf43",  .key = NCKEY_F43, },
+    { .tinfo = "kf44",  .key = NCKEY_F44, },
+    { .tinfo = "kf45",  .key = NCKEY_F45, },
+    { .tinfo = "kf46",  .key = NCKEY_F46, },
+    { .tinfo = "kf47",  .key = NCKEY_F47, },
+    { .tinfo = "kf48",  .key = NCKEY_F48, },
+    { .tinfo = "kf49",  .key = NCKEY_F49, },
+    { .tinfo = "kf50",  .key = NCKEY_F50, },
+    { .tinfo = "kf51",  .key = NCKEY_F51, },
+    { .tinfo = "kf52",  .key = NCKEY_F52, },
+    { .tinfo = "kf53",  .key = NCKEY_F53, },
+    { .tinfo = "kf54",  .key = NCKEY_F54, },
+    { .tinfo = "kf55",  .key = NCKEY_F55, },
+    { .tinfo = "kf56",  .key = NCKEY_F56, },
+    { .tinfo = "kf57",  .key = NCKEY_F57, },
+    { .tinfo = "kf58",  .key = NCKEY_F58, },
+    { .tinfo = "kf59",  .key = NCKEY_F59, },
     { .tinfo = "kent",  .key = NCKEY_ENTER, },
     { .tinfo = "kclr",  .key = NCKEY_CLS, },
     { .tinfo = "kc1",   .key = NCKEY_DLEFT, },
@@ -295,8 +483,13 @@ int prep_special_keys(notcurses* nc){
     }
 //fprintf(stderr, "support for terminfo's %s: %s\n", k->tinfo, seq);
     if(notcurses_add_input_escape(nc, seq, k->key)){
+      fprintf(stderr, "Couldn't add support for %s\n", k->tinfo);
       return -1;
     }
+  }
+  if(notcurses_add_input_escape(nc, CSIPREFIX, NCKEY_CSI)){
+    fprintf(stderr, "Couldn't add support for %s\n", k->tinfo);
+    return -1;
   }
   return 0;
 }

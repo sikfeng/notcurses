@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <string.h>
-#include <notcurses.h>
 #include "demo.h"
 
 // FIXME do the bigger dimension on the screen's bigger dimension
@@ -20,10 +19,8 @@ move_square(struct notcurses* nc, struct ncplane* chunk, int* holey, int* holex,
   // divide movetime into abs(max(deltay, deltax)) units, and move delta
   int units = abs(deltay) > abs(deltax) ? abs(deltay) : abs(deltax);
   movens /= units;
-  struct timespec movetime = {
-    .tv_sec = (movens / MOVES) / GIG,
-    .tv_nsec = (movens / MOVES) % GIG,
-  };
+  struct timespec movetime;
+  ns_to_timespec(movens, &movetime);
   int i;
   int targy = newholey;
   int targx = newholex;
@@ -34,26 +31,24 @@ move_square(struct notcurses* nc, struct ncplane* chunk, int* holey, int* holex,
     targy += deltay;
     targx += deltax;
     ncplane_move_yx(chunk, targy, targx);
-    if(notcurses_render(nc)){
-      return -1;
-    }
-    nanosleep(&movetime, NULL);
+    DEMO_RENDER(nc);
+    demo_nanosleep(nc, &movetime);
   }
   *holey = newholey;
   *holex = newholex;
   return 0;
 }
 
-// we take (MOVES / 5) * demodelay to play MOVES moves
+// we take demodelay * 5 to play MOVES moves
 static int
 play(struct notcurses* nc, struct ncplane** chunks){
-  const uint64_t delayns = demodelay.tv_sec * GIG + demodelay.tv_nsec;
+  const uint64_t delayns = timespec_to_ns(&demodelay);
   const int chunkcount = CHUNKS_VERT * CHUNKS_HORZ;
   struct timespec cur;
   clock_gettime(CLOCK_MONOTONIC, &cur);
   // we don't want to spend more than demodelay * 5
   const uint64_t totalns = delayns * 5;
-  const uint64_t deadline_ns = cur.tv_sec * GIG + cur.tv_nsec + totalns;
+  const uint64_t deadline_ns = timespec_to_ns(&cur) + totalns;
   const uint64_t movens = totalns / MOVES;
   int hole = random() % chunkcount;
   int holex, holey;
@@ -84,7 +79,10 @@ play(struct notcurses* nc, struct ncplane** chunks){
       }
     }while(mover == chunkcount);
     lastdir = direction;
-    move_square(nc, chunks[mover], &holey, &holex, movens);
+    int err = move_square(nc, chunks[mover], &holey, &holex, movens);
+    if(err){
+      return err;
+    }
     chunks[hole] = chunks[mover];
     chunks[mover] = NULL;
     hole = mover;
@@ -99,29 +97,27 @@ fill_chunk(struct ncplane* n, int idx){
   char buf[4];
   int maxy, maxx;
   ncplane_dim_yx(n, &maxy, &maxx);
-  snprintf(buf, sizeof(buf), "%02d", idx);
   uint64_t channels = 0;
   int r = 64 + hidx * 10;
   int b = 64 + vidx * 30;
   int g = 225 - ((hidx + vidx) * 12);
   channels_set_fg_rgb(&channels, r, g, b);
-  if(ncplane_double_box(n, 0, channels, maxy - 1, maxx - 1, 0)){
-    return -1;
-  }
+  uint32_t ul = 0, ur = 0, ll = 0, lr = 0;
+  channel_set_rgb(&ul, r, g, b);
+  channel_set_rgb(&lr, r, g, b);
+  channel_set_rgb(&ur, g, b, r);
+  channel_set_rgb(&ll, b, r, g);
+  int ret = 0;
+  ret |= ncplane_highgradient_sized(n, ul, ur, ll, lr, maxy, maxx);
+  ret |= ncplane_double_box(n, 0, channels, maxy - 1, maxx - 1, 0);
   if(maxx >= 4 && maxy >= 3){
-    ncplane_set_fg_rgb(n, 0, 0, 0);
-    ncplane_set_bg_rgb(n, r, g, b);
-    if(ncplane_putstr_aligned(n, (maxy - 1) / 2, buf, NCALIGN_CENTER) <= 0){
-      return -1;
-    }
+    ret |= ncplane_cursor_move_yx(n, (maxy - 1) / 2, (maxx - 1) / 2);
+    snprintf(buf, sizeof(buf), "%d", (idx + 1) / 10); // don't zero-index to viewer
+    ret |= (ncplane_putegc(n, buf, NULL) < 0);
+    snprintf(buf, sizeof(buf), "%d", (idx + 1) % 10);
+    ret |= (ncplane_putegc(n, buf, NULL) < 0);
   }
-  cell style;
-  cell_init(&style);
-  cell_set_fg_rgb(&style, r, g, b);
-  cell_prime(n, &style, "█", 0, channels);
-  ncplane_set_default(n, &style);
-  cell_release(n, &style);
-  return 0;
+  return ret;
 }
 
 static int
@@ -143,17 +139,17 @@ draw_bounding_box(struct ncplane* n, int yoff, int xoff, int chunky, int chunkx)
 int sliding_puzzle_demo(struct notcurses* nc){
   int ret = -1, z;
   int maxx, maxy;
+  struct ncplane* n = notcurses_stddim_yx(nc, &maxy, &maxx);
   int chunky, chunkx;
-  notcurses_term_dim_yx(nc, &maxy, &maxx);
   // want at least 2x2 for each sliding chunk
   if(maxy < CHUNKS_VERT * 2 || maxx < CHUNKS_HORZ * 2){
-    fprintf(stderr, "Terminal too small, need at least %dx%d\n",
-            CHUNKS_HORZ, CHUNKS_VERT);
     return -1;
   } 
   // we want an 8x8 grid of chunks with a border. the leftover space will be unused
   chunky = (maxy - 2) / CHUNKS_VERT;
   chunkx = (maxx - 2) / CHUNKS_HORZ;
+  // want an even width so our 2-digit IDs are centered exactly
+  chunkx -= (chunkx % 2);
   // don't allow them to be too rectangular, but keep aspect ratio in mind!
   if(chunky > chunkx + 1){
     chunky = chunkx + 1;
@@ -162,21 +158,6 @@ int sliding_puzzle_demo(struct notcurses* nc){
   }
   int wastey = ((maxy - 2) - (CHUNKS_VERT * chunky)) / 2;
   int wastex = ((maxx - 2) - (CHUNKS_HORZ * chunkx)) / 2;
-  struct ncplane* n = notcurses_stdplane(nc);
-  ncplane_erase(n);
-  int averr = 0;
-  struct ncvisual* ncv = ncplane_visual_open(n, "../tests/changes.jpg", &averr);
-  if(ncv == NULL){
-    return -1;
-  }
-  if(ncvisual_decode(ncv, &averr) == NULL){
-    ncvisual_destroy(ncv);
-    return -1;
-  }
-  if(ncvisual_render(ncv)){
-    ncvisual_destroy(ncv);
-    return -1;
-  }
   const int chunkcount = CHUNKS_VERT * CHUNKS_HORZ;
   struct ncplane** chunks = malloc(sizeof(*chunks) * chunkcount);
   if(chunks == NULL){
@@ -189,8 +170,8 @@ int sliding_puzzle_demo(struct notcurses* nc){
     for(cx = 0 ; cx < CHUNKS_HORZ ; ++cx){
       const int idx = cy * CHUNKS_HORZ + cx;
       chunks[idx] =
-        notcurses_newplane(nc, chunky, chunkx, cy * chunky + wastey + 1,
-                           cx * chunkx + wastex + 1, NULL);
+        ncplane_new(nc, chunky, chunkx, cy * chunky + wastey + 1,
+                    cx * chunkx + wastex + 1, NULL);
       if(chunks[idx] == NULL){
         goto done;
       }
@@ -199,11 +180,9 @@ int sliding_puzzle_demo(struct notcurses* nc){
   }
   // draw a box around the playing area
   if(draw_bounding_box(n, wastey, wastex, chunky, chunkx)){
-    return -1;
-  }
-  if(notcurses_render(nc)){
     goto done;
   }
+  DEMO_RENDER(nc);
   struct timespec ts = { .tv_sec = 0, .tv_nsec = 1000000000, };
   // fade out each of the chunks in succession
   /*for(cy = 0 ; cy < CHUNKS_VERT ; ++cy){
@@ -232,14 +211,9 @@ int sliding_puzzle_demo(struct notcurses* nc){
     chunks[i0] = chunks[i1];
     ncplane_move_yx(chunks[i0], targy0, targx0);
     chunks[i1] = t;
-    if(notcurses_render(nc)){
-      goto done;
-    }
+    DEMO_RENDER(nc);
   }
-  if(play(nc, chunks)){
-    goto done;
-  }
-  ret = 0;
+  ret = play(nc, chunks);
 
 done:
   for(z = 0 ; z < chunkcount ; ++z){

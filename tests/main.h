@@ -1,14 +1,12 @@
 #ifndef NOTCURSES_TEST_MAIN
 #define NOTCURSES_TEST_MAIN
 
-#include <gtest/gtest.h>
-#include <notcurses.h>
-#include <curses.h>
+#include <unistd.h>
+#include <doctest/doctest.h>
+#include "version.h"
+#include <notcurses/notcurses.h>
 
-// GTEST_SKIP only came along in GoogleTest 1.9
-#ifndef GTEST_SKIP
-#define GTEST_SKIP() return;
-#endif
-
+auto find_data(const char* datum) -> char*;
+auto enforce_utf8() -> bool;
 
 #endif

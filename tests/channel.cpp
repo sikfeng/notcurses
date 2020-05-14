@@ -1,14 +1,6 @@
-#include <notcurses.h>
 #include "main.h"
 
-class ChannelTest : public :: testing::Test {
- protected:
-  void SetUp() override {
-    setlocale(LC_ALL, "");
-  }
-};
-
-TEST_F(ChannelTest, ChannelGetRGB){
+TEST_CASE("ChannelGetRGB") {
   const struct t {
     uint32_t channel;
     int r, g, b;
@@ -20,14 +12,14 @@ TEST_F(ChannelTest, ChannelGetRGB){
   };
   for(auto i = 0u ; i < sizeof(test) / sizeof(*test) ; ++i){
     unsigned r, g, b;
-    EXPECT_EQ(test[i].channel, channel_get_rgb(test[i].channel, &r, &g, &b));
-    EXPECT_EQ(test[i].r, r);
-    EXPECT_EQ(test[i].g, g);
-    EXPECT_EQ(test[i].b, b);
+    CHECK(test[i].channel == channel_rgb(test[i].channel, &r, &g, &b));
+    CHECK(test[i].r == r);
+    CHECK(test[i].g == g);
+    CHECK(test[i].b == b);
   }
 }
 
-TEST_F(ChannelTest, ChannelGetAlpha){
+TEST_CASE("ChannelGetAlpha") {
   const struct t {
     uint32_t channel;
     int a;
@@ -40,11 +32,11 @@ TEST_F(ChannelTest, ChannelGetAlpha){
     { .channel = 0xffffffff, .a = 3, },
   };
   for(auto i = 0u ; i < sizeof(test) / sizeof(*test) ; ++i){
-    EXPECT_EQ(test[i].a, channel_get_alpha(test[i].channel));
+    CHECK(test[i].a == channel_alpha(test[i].channel));
   }
 }
 
-TEST_F(ChannelTest, ChannelGetDefault){
+TEST_CASE("ChannelGetDefault") {
   const struct t {
     uint32_t channel;
     bool def;
@@ -57,19 +49,121 @@ TEST_F(ChannelTest, ChannelGetDefault){
     { .channel = 0xffffffff, .def = false, },
   };
   for(auto i = 0u ; i < sizeof(test) / sizeof(*test) ; ++i){
-    EXPECT_EQ(test[i].def, channel_default_p(test[i].channel));
+    CHECK(test[i].def == channel_default_p(test[i].channel));
   }
 }
 
-TEST_F(ChannelTest, ChannelSetDefault){
+TEST_CASE("ChannelSetDefault") {
   const uint32_t channels[] = {
     0x40000000, 0x4fffffff, 0xcfffffff,
     0x40808080, 0x40080808, 0xffffffff,
   };
   for(auto i = 0u ; i < sizeof(channels) / sizeof(*channels) ; ++i){
     uint32_t channel = channels[i];
-    EXPECT_FALSE(channel_default_p(channel));
+    CHECK(!channel_default_p(channel));
     channel_set_default(&channel);
-    EXPECT_TRUE(channel_default_p(channel));
+    CHECK(channel_default_p(channel));
   }
+}
+
+// blend of 0 ought set c1 to c2
+TEST_CASE("ChannelBlend0") {
+  uint32_t c1 = 0;
+  uint32_t c2 = 0;
+  channel_set_rgb(&c1, 0x80, 0x40, 0x20);
+  channel_set_rgb(&c2, 0x88, 0x44, 0x22);
+  unsigned blends = 0;
+  uint32_t c = channels_blend(c1, c2, &blends);
+  CHECK(!channel_default_p(c));
+  unsigned r, g, b;
+  channel_rgb(c, &r, &g, &b);
+  CHECK(0x88 == r);
+  CHECK(0x44 == g);
+  CHECK(0x22 == b);
+  CHECK(1 == blends);
+}
+
+// blend of 1 ought perfectly average c1 and c2
+TEST_CASE("ChannelBlend1") {
+  uint32_t c1 = 0;
+  uint32_t c2 = 0;
+  channel_set_rgb(&c1, 0x80, 0x40, 0x20);
+  channel_set_rgb(&c2, 0x0, 0x0, 0x0);
+  unsigned blends = 1;
+  uint32_t c = channels_blend(c1, c2, &blends);
+  CHECK(!channel_default_p(c));
+  unsigned r, g, b;
+  channel_rgb(c, &r, &g, &b);
+  CHECK(0x40 == r);
+  CHECK(0x20 == g);
+  CHECK(0x10 == b);
+  CHECK(2 == blends);
+}
+
+// blend of 2 ought weigh c1 twice as much as c2
+TEST_CASE("ChannelBlend2") {
+  uint32_t c1 = 0;
+  uint32_t c2 = 0;
+  channel_set_rgb(&c1, 0x60, 0x30, 0x0f);
+  channel_set_rgb(&c2, 0x0, 0x0, 0x0);
+  unsigned blends = 2;
+  uint32_t c = channels_blend(c1, c2, &blends);
+  CHECK(!channel_default_p(c));
+  unsigned r, g, b;
+  channel_rgb(c, &r, &g, &b);
+  CHECK(0x40 == r);
+  CHECK(0x20 == g);
+  CHECK(0x0a == b);
+  CHECK(3 == blends);
+}
+
+// you can't blend into a default color at any positive number of blends
+TEST_CASE("ChannelBlendDefaultLeft") {
+  uint32_t c1 = 0;
+  uint32_t c2 = 0;
+  channel_set_rgb(&c2, 0x80, 0x40, 0x20);
+  unsigned blends = 0;
+  uint32_t c = channels_blend(c1, c2, &blends); // will replace
+  CHECK(!channel_default_p(c));
+  unsigned r, g, b;
+  channel_rgb(c, &r, &g, &b);
+  CHECK(0x80 == r);
+  CHECK(0x40 == g);
+  CHECK(0x20 == b);
+  CHECK(1 == blends);
+  c = channels_blend(c1, c2, &blends); // will not replace
+  CHECK(channel_default_p(c));
+  channel_rgb(c, &r, &g, &b);
+  CHECK(0 == r);
+  CHECK(0 == g);
+  CHECK(0 == b);
+  CHECK(2 == blends);
+  c = channels_blend(c1, c2, &blends); // will not replace
+  CHECK(channel_default_p(c));
+  channel_rgb(c, &r, &g, &b);
+  CHECK(0 == r);
+  CHECK(0 == g);
+  CHECK(0 == b);
+  CHECK(3 == blends);
+}
+
+// you can't blend from a default color, but blend 0 sets it
+TEST_CASE("ChannelBlendDefaultRight") {
+  uint32_t c1 = 0;
+  uint32_t c2 = 0;
+  channel_set_rgb(&c1, 0x80, 0x40, 0x20);
+  CHECK(!channel_default_p(c1));
+  CHECK(channel_default_p(c2));
+  unsigned blends = 0;
+  uint32_t c = channels_blend(c1, c2, &blends);
+  CHECK(channel_default_p(c));
+  CHECK(1 == blends);
+  c = channels_blend(c1, c2, &blends);
+  CHECK(!channel_default_p(c));
+  unsigned r, g, b;
+  channel_rgb(c, &r, &g, &b);
+  CHECK(0x80 == r);
+  CHECK(0x40 == g);
+  CHECK(0x20 == b);
+  CHECK(2 == blends);
 }

@@ -11,49 +11,56 @@
 #define CHUNKSIZE 32  // show this many per line
 
 static int
-fade_block(struct ncplane* nn, const struct timespec* subdelay){
-  int ret = ncplane_fadein(nn, subdelay);
+fade_block(struct notcurses* nc, struct ncplane* nn, const struct timespec* subdelay){
+  //int ret = ncplane_fadein(nn, subdelay, demo_fader);
+  int ret = demo_render(nc);
+  demo_nanosleep(nc, subdelay);
   ncplane_destroy(nn);
   return ret;
 }
 
 static int
 draw_block(struct ncplane* nn, uint32_t blockstart){
+  int dimx, dimy;
+  ncplane_dim_yx(nn, &dimy, &dimx);
   cell ul = CELL_TRIVIAL_INITIALIZER, ur = CELL_TRIVIAL_INITIALIZER;
   cell ll = CELL_TRIVIAL_INITIALIZER, lr = CELL_TRIVIAL_INITIALIZER;
   cell hl = CELL_TRIVIAL_INITIALIZER, vl = CELL_TRIVIAL_INITIALIZER;
   cells_rounded_box(nn, 0, 0, &ul, &ur, &ll, &lr, &hl, &vl);
-  cell_set_bg_alpha(&ul, CELL_ALPHA_TRANS);
-  cell_set_bg_alpha(&ur, CELL_ALPHA_TRANS);
-  cell_set_bg_alpha(&ll, CELL_ALPHA_TRANS);
-  cell_set_bg_alpha(&lr, CELL_ALPHA_TRANS);
-  cell_set_fg_rgb(&ll, 255, 255, 255);
-  cell_set_fg_rgb(&lr, 255, 255, 255);
-  cell_set_fg_rgb(&ul, 255, 255, 255);
-  cell_set_fg_rgb(&ur, 255, 255, 255);
+  cell_set_bg_alpha(&ul, CELL_ALPHA_TRANSPARENT);
+  cell_set_bg_alpha(&ur, CELL_ALPHA_TRANSPARENT);
+  cell_set_bg_alpha(&ll, CELL_ALPHA_TRANSPARENT);
+  cell_set_bg_alpha(&lr, CELL_ALPHA_TRANSPARENT);
+  cell_set_fg_rgb(&ul, 0xea, 0xaa, 0x00);
+  cell_set_fg_rgb(&ur, 0x00, 0x30, 0x57);
+  cell_set_fg_rgb(&ll, 0x00, 0x30, 0x57);
+  cell_set_fg_rgb(&lr, 0xea, 0xaa, 0x00);
+  // see https://github.com/dankamongmen/notcurses/issues/259. we use a random
+  // (but dark) background for the perimeter to force refreshing on the box,
+  // when it might otherwise be molested by RTL text. hacky and gross :( FIXME
+  int rbg = random() % 20;
+  cell_set_bg(&ul, rbg);
+  cell_set_bg(&ur, rbg);
+  cell_set_bg(&ll, rbg);
+  cell_set_bg(&lr, rbg);
   cell_set_fg_rgb(&hl, 255, 255, 255);
   cell_set_fg_rgb(&vl, 255, 255, 255);
   cell_set_bg_rgb(&hl, 0, 0, 0);
   cell_set_bg_rgb(&vl, 0, 0, 0);
-  if(ncplane_box_sized(nn, &ul, &ur, &ll, &lr, &hl, &vl,
-                  BLOCKSIZE / CHUNKSIZE + 2,
-                  (CHUNKSIZE * 2) + 2, 0)){
+  ncplane_cursor_move_yx(nn, 0, 0);
+  unsigned control = NCBOXGRAD_TOP | NCBOXGRAD_BOTTOM | NCBOXGRAD_LEFT | NCBOXGRAD_RIGHT;
+  if(ncplane_box_sized(nn, &ul, &ur, &ll, &lr, &hl, &vl, dimy, dimx, control)){
     return -1;
   }
   cell_release(nn, &ul); cell_release(nn, &ur); cell_release(nn, &hl);
   cell_release(nn, &ll); cell_release(nn, &lr); cell_release(nn, &vl);
   int chunk;
   for(chunk = 0 ; chunk < BLOCKSIZE / CHUNKSIZE ; ++chunk){
-    if(ncplane_cursor_move_yx(nn, chunk + 1, 1)){
-      return -1;
-    }
     int z;
-    cell c = CELL_TRIVIAL_INITIALIZER;
-    // 16 to a line
     for(z = 0 ; z < CHUNKSIZE ; ++z){
-      wchar_t w[2] = { blockstart + chunk * CHUNKSIZE + z, L'\u200e' };
-      char utf8arr[MB_CUR_MAX * 2 + 1];
-      if(wcswidth(w, 2) >= 1 && iswprint(w[0])){
+      wchar_t w[2] = { blockstart + chunk * CHUNKSIZE + z, L'\0' };
+      char utf8arr[MB_CUR_MAX * 3 + 5];
+      if(wcswidth(w, INT_MAX) >= 1 && iswgraph(w[0])){
         mbstate_t ps;
         memset(&ps, 0, sizeof(ps));
         const wchar_t *wptr = w;
@@ -64,40 +71,29 @@ draw_block(struct ncplane* nn, uint32_t blockstart){
                   blockstart + chunk * CHUNKSIZE + z, w[0], strerror(errno));
           return -1;
         }
-        utf8arr[bwc] = '\0';
+        if(wcwidth(w[0]) < 2){
+          utf8arr[bwc++] = ' ';
+        }
+        utf8arr[bwc++] = 0xe2;
+        utf8arr[bwc++] = 0x80;
+        utf8arr[bwc++] = 0x8e;
+        utf8arr[bwc++] = '\0';
       }else{ // don't dump non-printing codepoints
-        utf8arr[0] = ' ';
-        utf8arr[1] = 0xe2;
-        utf8arr[2] = 0x80;
-        utf8arr[3] = 0x8e;
-        utf8arr[4] = '\0';
+        strcpy(utf8arr, "  ");
       }
-      if(cell_load(nn, &c, utf8arr) < 0){ // FIXME check full len was eaten?
-        return -1;;
-      }
-      cell_set_fg_rgb(&c, 0xad + z * 2, 0xd8, 0xe6 - z * 2);
-      cell_set_bg_rgb(&c, 8 * chunk, 8 * chunk + z, 8 * chunk);
-      if(ncplane_putc(nn, &c) < 0){
+      ncplane_set_fg_rgb(nn, 0xad + z * 2, 0xff, 0x2f - z * 2);
+      ncplane_set_bg_rgb(nn, 8 * chunk, 8 * chunk, 8 * chunk);
+      if(ncplane_putstr_yx(nn, chunk + 1, z * 2 + 1, utf8arr) < 0){
         return -1;
       }
-      if(wcwidth(w[0]) < 2 || !iswprint(w[0])){
-        if(cell_load(nn, &c, " ") < 0){
-          return -1;
-        }
-        if(ncplane_putc(nn, &c) < 0){
-          return -1;
-        }
-      }
     }
-    cell_release(nn, &c);
   }
   return 0;
 }
 
 int unicodeblocks_demo(struct notcurses* nc){
-  struct ncplane* n = notcurses_stdplane(nc);
   int maxx, maxy;
-  notcurses_term_dim_yx(nc, &maxy, &maxx);
+  struct ncplane* n = notcurses_stddim_yx(nc, &maxy, &maxx);
   // some blocks are good for the printing, some less so. some are only
   // marginally covered by mainstream fonts, some not at all. we explicitly
   // list the ones we want.
@@ -149,7 +145,14 @@ int unicodeblocks_demo(struct notcurses* nc){
     { .name = "Yi Syllables", .start = 0xa200, },
     { .name = "Yi Syllables, Yi Radicals, Lisu, Vai", .start = 0xa400, },
     { .name = "Vai, Cyrillic Extended-B, Bamum, Tone Letters, Latin Extended-D", .start = 0xa600, },
-    { .name = "Halfwidth and Fullwidth Forms", .start = 0xff00, },
+    { .name = "Syloti Nagri, Phags-pa, Kayah Li, Javanese", .start = 0xa800, },
+    { .name = "Cham, Tai Viet, Cherokee Supplement", .start = 0xaa00, },
+    { .name = "Hangul Syllables", .start = 0xac00, },
+    { .name = "Hangul Syllables", .start = 0xae00, },
+    { .name = "CJK Compatibility Ideographs", .start = 0xf800, },
+    { .name = "CJK Compatibility Ideographs, Alphabetic Presentation Forms", .start = 0xfa00, },
+    { .name = "Arabic Presentation Forms-A", .start = 0xfc00, },
+    { .name = "Halfwidth and Fullwidth Forms", .start = 0xfe00, },
     { .name = "Linear B Syllabary, Linear B Ideograms, Aegean Numbers, Phaistos Disc", .start = 0x10000, },
     { .name = "Lycian, Carian, Coptic Epact Numbers, Old Italic, Gothic, Old Permic", .start = 0x10200, },
     { .name = "Cuneiform", .start = 0x12000, },
@@ -169,50 +172,66 @@ int unicodeblocks_demo(struct notcurses* nc){
     { .name = "Supplemental Arrows-C, Supplemental Symbols", .start = 0x1f800, },
     { .name = "Chess Symbols, Symbols and Pictographs Extended-A", .start = 0x1fa00, },
   };
+
+  // this demo is completely meaningless outside UTF-8 mode
+  if(!notcurses_canutf8(nc)){
+    return 0;
+  }
+  ncplane_greyscale(notcurses_stdplane(nc));
   size_t sindex;
   // we don't want a full delay period for each one, urk...or do we?
   struct timespec subdelay;
   uint64_t nstotal = timespec_to_ns(&demodelay);
-  ns_to_timespec(nstotal / 5, &subdelay);
+  ns_to_timespec(nstotal / 3, &subdelay);
+  struct ncplane* header = ncplane_aligned(notcurses_stdplane(nc), 2,
+                                           (CHUNKSIZE * 2) - 2, 2,
+                                           NCALIGN_CENTER, NULL);
+  if(header == NULL){
+    return -1;
+  }
+  uint64_t channels = 0;
+  channels_set_fg_alpha(&channels, CELL_ALPHA_BLEND);
+  channels_set_fg(&channels, 0x004000);
+  channels_set_bg(&channels, 0x0);
+  ncplane_set_base(header, "", 0, channels);
   for(sindex = 0 ; sindex < sizeof(blocks) / sizeof(*blocks) ; ++sindex){
     ncplane_set_bg_rgb(n, 0, 0, 0);
-    //ncplane_erase(n);
     uint32_t blockstart = blocks[sindex].start;
     const char* description = blocks[sindex].name;
-    ncplane_set_fg_rgb(n, 0xad, 0xd8, 0xe6);
-    if(ncplane_cursor_move_yx(n, 1, (maxx - 26) / 2)){
+    ncplane_set_bg(header, 0);
+    ncplane_set_fg(header, 0xbde8f6);
+    if(ncplane_printf_aligned(header, 1, NCALIGN_CENTER, "Unicode points 0x%05x—0x%05x (%u—%u)",
+                              blockstart, blockstart + BLOCKSIZE,
+                              blockstart, blockstart + BLOCKSIZE) <= 0){
       return -1;
     }
-    if(ncplane_printf(n, "Unicode points %05x–%05x", blockstart, blockstart + BLOCKSIZE) <= 0){
-      return -1;
-    }
-    int xstart = (maxx - ((CHUNKSIZE * 2) + 3)) / 2;
     struct ncplane* nn;
-    if((nn = notcurses_newplane(nc, BLOCKSIZE / CHUNKSIZE + 2, (CHUNKSIZE * 2) + 2, 3, xstart, NULL)) == NULL){
+    if((nn = ncplane_aligned(notcurses_stdplane(nc), BLOCKSIZE / CHUNKSIZE + 2,
+                             (CHUNKSIZE * 2) + 2, 4, NCALIGN_CENTER, NULL)) == NULL){
       return -1;
     }
     if(draw_block(nn, blockstart)){
       return -1;
     }
-    ncplane_set_fg_rgb(n, 0x40, 0xc0, 0x40);
+    if(ncplane_set_fg_rgb(n, 0x40, 0xc0, 0x40)){
+      return -1;
+    }
     if(ncplane_cursor_move_yx(n, 6 + BLOCKSIZE / CHUNKSIZE, 0)){
       return -1;
     }
     if(ncplane_printf(n, "%*.*s", maxx, maxx, "") <= 0){
       return -1;
     }
-    if(ncplane_cursor_move_yx(n, 6 + BLOCKSIZE / CHUNKSIZE, (maxx - strlen(description)) / 2)){
+    if(ncplane_printf_aligned(n, 6 + BLOCKSIZE / CHUNKSIZE, NCALIGN_CENTER, "%s", description) <= 0){
       return -1;
     }
-    if(ncplane_printf(n, "%s", description) <= 0){
-      return -1;
-    }
-    if(fade_block(nn, &subdelay)){ // destroys nn
-      return -1;
+    int err;
+    if( (err = fade_block(nc, nn, &subdelay)) ){ // destroys nn
+      return err;
     }
     // for a 32-bit wchar_t, we would want up through 24 bits of block ID. but
     // really, the vast majority of space is unused.
-    blockstart += BLOCKSIZE;
   }
+  ncplane_destroy(header);
   return 0;
 }

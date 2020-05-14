@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <locale.h>
 #include <assert.h>
-#include <notcurses.h>
+#include <notcurses/notcurses.h>
 
 #define DISABLE_ALTCHARSET 1
 
@@ -31,9 +31,9 @@ pivot_on(int pivot, int* sgrs, int sgrcount){
 }
 
 int main(int argc, char** argv){
+  (void)argc;
   setlocale(LC_ALL, "");
   const char* sgr;
-  char** a;
   if(setupterm(NULL, -1, NULL)){
     fprintf(stderr, "Error initializing terminal\n");
     return EXIT_FAILURE;

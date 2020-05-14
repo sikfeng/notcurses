@@ -1,118 +1,126 @@
-#include <notcurses.h>
-#include "egcpool.h"
 #include "main.h"
+#include "egcpool.h"
 
-class CellTest : public :: testing::Test {
- protected:
-  void SetUp() override {
-    setlocale(LC_ALL, "");
-    if(getenv("TERM") == nullptr){
-      GTEST_SKIP();
-    }
-    notcurses_options nopts{};
-    nopts.inhibit_alternate_screen = true;
-    outfp_ = fopen("/dev/tty", "wb");
-    ASSERT_NE(nullptr, outfp_);
-    nc_ = notcurses_init(&nopts, outfp_);
-    ASSERT_NE(nullptr, nc_);
-    n_ = notcurses_stdplane(nc_);
-    ASSERT_NE(nullptr, n_);
+TEST_CASE("MultibyteWidth") {
+  if(!enforce_utf8()){
+    return;
+  }
+  CHECK(0 == mbswidth(""));       // zero bytes, zero columns
+  CHECK(-1 == mbswidth("\x7"));   // single byte, non-printable
+  CHECK(1 == mbswidth(" "));      // single byte, one column
+  CHECK(5 == mbswidth("abcde"));  // single byte, one column
+  CHECK(1 == mbswidth("µ"));      // two bytes, one column
+  // FIXME take this back up to CHECK as soon as we figure out why some
+  // architectures seem to see this as a single column...
+  WARN(2 == mbswidth("\xf0\x9f\xa6\xb2"));     // four bytes, two columns
+  CHECK(6 == mbswidth("平仮名")); // nine bytes, six columns
+  CHECK(1 == mbswidth("\ufdfd")); // three bytes, ? columns, wcwidth() returns 1
+}
+
+TEST_CASE("Cell") {
+  // common initialization
+  if(getenv("TERM") == nullptr){
+    return;
+  }
+  FILE* outfp_ = fopen("/dev/tty", "wb");
+  REQUIRE(nullptr != outfp_);
+  notcurses_options nopts{};
+  nopts.inhibit_alternate_screen = true;
+  nopts.suppress_banner = true;
+  struct notcurses* nc_ = notcurses_init(&nopts, outfp_);
+  REQUIRE(nullptr != nc_);
+  struct ncplane* n_ = notcurses_stdplane(nc_);
+  REQUIRE(nullptr != n_);
+
+  SUBCASE("LoadSimple") {
+    cell c = CELL_TRIVIAL_INITIALIZER;
+    REQUIRE(1 == cell_load(n_, &c, " "));
+    CHECK(cell_simple_p(&c));
+    cell_release(n_, &c);
   }
 
-  void TearDown() override {
-    if(nc_){
-      EXPECT_EQ(0, notcurses_stop(nc_));
-    }
-    if(outfp_){
-      fclose(outfp_);
-    }
+SUBCASE("SetItalic") {
+  cell c = CELL_TRIVIAL_INITIALIZER;
+    int dimy, dimx;
+    notcurses_term_dim_yx(nc_, &dimy, &dimx);
+    cell_styles_set(&c, NCSTYLE_ITALIC);
+    REQUIRE(1 == cell_load(n_, &c, "i"));
+    cell_set_fg_rgb(&c, 255, 255, 255);
+    ncplane_set_base_cell(n_, &c);
+    cell_release(n_, &c);
+    CHECK(0 == notcurses_render(nc_));
+    cell_styles_off(&c, NCSTYLE_ITALIC);
   }
 
-  struct notcurses* nc_{};
-  struct ncplane* n_{};
-  FILE* outfp_{};
-};
+  SUBCASE("SetBold") {
+    cell c = CELL_TRIVIAL_INITIALIZER;
+    int dimy, dimx;
+    notcurses_term_dim_yx(nc_, &dimy, &dimx);
+    cell_styles_set(&c, NCSTYLE_BOLD);
+    REQUIRE(1 == cell_load(n_, &c, "b"));
+    cell_set_fg_rgb(&c, 255, 255, 255);
+    ncplane_set_base_cell(n_, &c);
+    cell_release(n_, &c);
+    CHECK(0 == notcurses_render(nc_));
+    cell_styles_off(&c, NCSTYLE_BOLD);
+  }
 
-TEST_F(CellTest, LoadSimple) {
-  cell c = CELL_TRIVIAL_INITIALIZER;
-  ASSERT_EQ(1, cell_load(n_, &c, " "));
-  EXPECT_TRUE(cell_simple_p(&c));
-  cell_release(n_, &c);
-}
+  SUBCASE("SetUnderline") {
+    cell c = CELL_TRIVIAL_INITIALIZER;
+    int dimy, dimx;
+    notcurses_term_dim_yx(nc_, &dimy, &dimx);
+    cell_styles_set(&c, NCSTYLE_UNDERLINE);
+    REQUIRE(1 == cell_load(n_, &c, "u"));
+    cell_set_fg_rgb(&c, 255, 255, 255);
+    ncplane_set_base_cell(n_, &c);
+    cell_release(n_, &c);
+    CHECK(0 == notcurses_render(nc_));
+    cell_styles_off(&c, NCSTYLE_UNDERLINE);
+  }
 
-TEST_F(CellTest, SetItalic) {
-  cell c = CELL_TRIVIAL_INITIALIZER;
-  int dimy, dimx;
-  notcurses_term_dim_yx(nc_, &dimy, &dimx);
-  cell_styles_set(&c, CELL_STYLE_ITALIC);
-  ASSERT_EQ(1, cell_load(n_, &c, "i"));
-  cell_set_fg_rgb(&c, 255, 255, 255);
-  ncplane_set_default(n_, &c);
-  cell_release(n_, &c);
-  EXPECT_EQ(0, notcurses_render(nc_));
-  cell_styles_off(&c, CELL_STYLE_ITALIC);
-}
-
-TEST_F(CellTest, SetBold) {
-  cell c = CELL_TRIVIAL_INITIALIZER;
-  int dimy, dimx;
-  notcurses_term_dim_yx(nc_, &dimy, &dimx);
-  cell_styles_set(&c, CELL_STYLE_BOLD);
-  ASSERT_EQ(1, cell_load(n_, &c, "b"));
-  cell_set_fg_rgb(&c, 255, 255, 255);
-  ncplane_set_default(n_, &c);
-  cell_release(n_, &c);
-  EXPECT_EQ(0, notcurses_render(nc_));
-  cell_styles_off(&c, CELL_STYLE_BOLD);
-}
-
-TEST_F(CellTest, SetUnderline) {
-  cell c = CELL_TRIVIAL_INITIALIZER;
-  int dimy, dimx;
-  notcurses_term_dim_yx(nc_, &dimy, &dimx);
-  cell_styles_set(&c, CELL_STYLE_UNDERLINE);
-  ASSERT_EQ(1, cell_load(n_, &c, "u"));
-  cell_set_fg_rgb(&c, 255, 255, 255);
-  ncplane_set_default(n_, &c);
-  cell_release(n_, &c);
-  EXPECT_EQ(0, notcurses_render(nc_));
-  cell_styles_off(&c, CELL_STYLE_UNDERLINE);
-}
-
-/*TEST_F(CellTest, CellLoadTamil) {
+/*  SUBCASE("CellLoadTamil") {
   const char zerodeg[] = "\u0bb8\u0bc0\u0bb0\u0bc7\u0bb3\u0b95\u0bbf\u0b95\u0bbf\u0bb0\u0bbf";
   cell c = CELL_TRIVIAL_INITIALIZER;
   size_t ulen = cell_load(n_, &c, zerodeg);
   // First have U+0BB8 TAMIL LETTER SA U+0BC0 TAMIL VOWEL SIGN II
   // // e0 ae b8 e0 af 80
-  ASSERT_EQ(6, ulen);
+  REQUIRE(6 == ulen);
   ulen = cell_load(n_, &c, zerodeg + ulen);
   // U+0BB0 TAMIL LETTER RA U+0BCB TAMIL VOWEL SIGN OO
   // e0 ae b0 e0 af 8b
-  ASSERT_EQ(6, ulen);
+  REQUIRE(6 == ulen);
   // FIXME
-}*/
+  }*/
 
-TEST_F(CellTest, CellSetFGAlpha){
-  cell c = CELL_TRIVIAL_INITIALIZER;
-  EXPECT_GT(0, cell_set_fg_alpha(&c, -1));
-  EXPECT_GT(0, cell_set_fg_alpha(&c, 4));
-  EXPECT_EQ(0, cell_set_fg_alpha(&c, 0));
-  EXPECT_EQ(0, cell_get_fg_alpha(&c));
-  EXPECT_EQ(0, cell_set_fg_alpha(&c, 3));
-  EXPECT_EQ(3, cell_get_fg_alpha(&c));
-  EXPECT_TRUE(cell_fg_default_p(&c));
-  EXPECT_TRUE(cell_bg_default_p(&c));
+  SUBCASE("CellSetFGAlpha"){
+    cell c = CELL_TRIVIAL_INITIALIZER;
+    CHECK(0 > cell_set_fg_alpha(&c, -1));
+    CHECK(0 > cell_set_fg_alpha(&c, 4));
+    CHECK(0 == cell_set_fg_alpha(&c, CELL_ALPHA_OPAQUE));
+    CHECK(cell_fg_default_p(&c));
+    CHECK(cell_bg_default_p(&c));
+    CHECK(CELL_ALPHA_OPAQUE == cell_fg_alpha(&c));
+    CHECK(0 == cell_set_fg_alpha(&c, CELL_ALPHA_HIGHCONTRAST));
+    CHECK(CELL_ALPHA_HIGHCONTRAST == cell_fg_alpha(&c));
+    CHECK(!cell_fg_default_p(&c));
+    CHECK(cell_bg_default_p(&c));
+  }
+
+  SUBCASE("CellSetBGAlpha"){
+    cell c = CELL_TRIVIAL_INITIALIZER;
+    CHECK(0 > cell_set_bg_alpha(&c, -1));
+    CHECK(0 > cell_set_bg_alpha(&c, 4));
+    CHECK(0 == cell_set_bg_alpha(&c, CELL_ALPHA_OPAQUE));
+    CHECK(CELL_ALPHA_OPAQUE == cell_bg_alpha(&c));
+    CHECK(0 != cell_set_bg_alpha(&c, CELL_ALPHA_HIGHCONTRAST));
+    CHECK(0 == cell_set_bg_alpha(&c, CELL_ALPHA_TRANSPARENT));
+    CHECK(CELL_ALPHA_TRANSPARENT == cell_bg_alpha(&c));
+    CHECK(cell_fg_default_p(&c));
+    CHECK(!cell_bg_default_p(&c));
+  }
+
+  // common teardown
+  CHECK(0 == notcurses_stop(nc_));
+  CHECK(0 == fclose(outfp_));
 }
 
-TEST_F(CellTest, CellSetBGAlpha){
-  cell c = CELL_TRIVIAL_INITIALIZER;
-  EXPECT_GT(0, cell_set_bg_alpha(&c, -1));
-  EXPECT_GT(0, cell_set_bg_alpha(&c, 4));
-  EXPECT_EQ(0, cell_set_bg_alpha(&c, 0));
-  EXPECT_EQ(0, cell_get_bg_alpha(&c));
-  EXPECT_EQ(0, cell_set_bg_alpha(&c, 3));
-  EXPECT_EQ(3, cell_get_bg_alpha(&c));
-  EXPECT_TRUE(cell_fg_default_p(&c));
-  EXPECT_TRUE(cell_bg_default_p(&c));
-}

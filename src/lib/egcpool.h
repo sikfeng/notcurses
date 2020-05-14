@@ -3,11 +3,13 @@
 
 #include <wchar.h>
 #include <errno.h>
+#include <stdio.h>
 #include <stddef.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include "notcurses/notcurses.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +28,7 @@ typedef struct egcpool {
 } egcpool;
 
 #define POOL_MINIMUM_ALLOC BUFSIZ
+#define POOL_MAXIMUM_BYTES (1u << 30u) // max 1GB
 
 static inline void
 egcpool_init(egcpool* p){
@@ -41,8 +44,7 @@ egcpool_grow(egcpool* pool, size_t len){
   while(len > newsize - pool->poolsize){ // ensure we make enough space
     newsize *= 2;
   }
-  // offsets only have 25 bits available...
-  if(newsize >= 1u << 25u){
+  if(newsize > POOL_MAXIMUM_BYTES){
     return -1;
   }
   // nasty cast here because c++ source might include this header :/
@@ -57,7 +59,7 @@ egcpool_grow(egcpool* pool, size_t len){
 }
 
 // Eat an EGC from the UTF-8 string input. This consists of extracting a
-// multibyte via mbtowc, then continuing to extract any which have zero
+// multibyte via mbrtowc, then continuing to extract any which have zero
 // width until hitting another spacing character or a NUL terminator. Writes
 // the number of columns occupied to '*colcount'. Returns the number of bytes
 // consumed, not including any NUL terminator. Note that neither the number
@@ -106,8 +108,8 @@ egcpool_alloc_justified(const egcpool* pool, int len){
 
 // stash away the provided UTF8, NUL-terminated grapheme cluster. the cluster
 // should not be less than 2 bytes (such a cluster should be directly stored in
-// the cell). returns -1 on error, and otherwise a non-negative 25-bit offset.
-// 'ulen' must be the number of bytes to lift from egc (utf8_egc_len()).
+// the cell). returns -1 on error, and otherwise a non-negative offset. 'ulen'
+// must be the number of bytes to lift from egc (utf8_egc_len()).
 static inline int
 egcpool_stash(egcpool* pool, const char* egc, size_t ulen){
   int len = ulen + 1; // count the NUL terminator
@@ -127,7 +129,7 @@ egcpool_stash(egcpool* pool, const char* egc, size_t ulen){
       if(!duplicated){
         duplicated = strdup(egc);
       }
-      if(egcpool_grow(pool, len)){
+      if(egcpool_grow(pool, len) && searched){
         free(duplicated);
         return -1;
       }
@@ -138,6 +140,7 @@ egcpool_stash(egcpool* pool, const char* egc, size_t ulen){
     // memory. if we find it, write it out, and update used count. if we come
     // back to where we started, force a growth and try again.
     int curpos = pool->poolwrite;
+//fprintf(stderr, "Stashing [%s] %d starting at %d\n", egc, len, curpos);
     do{
       if(curpos == pool->poolsize){
         curpos = 0;
@@ -165,6 +168,7 @@ egcpool_stash(egcpool* pool, const char* egc, size_t ulen){
           pool->poolwrite = curpos + len;
           pool->poolused += len;
           free(duplicated);
+//fprintf(stderr, "Stashing AT %d\n", curpos);
           return curpos;
         }
         if(pool->poolwrite > curpos && pool->poolwrite - (len - need) < curpos){
@@ -191,9 +195,11 @@ egcpool_check_validity(const egcpool* pool, int offset){
     fprintf(stderr, "Bad offset 0x%06x: empty\n", offset);
     return false;
   }
+  mbstate_t mbstate;
+  memset(&mbstate, 0, sizeof(mbstate));
   do{
     wchar_t wcs;
-    int r = mbtowc(&wcs, egc, strlen(egc));
+    int r = mbrtowc(&wcs, egc, strlen(egc), &mbstate);
     if(r < 0){
       fprintf(stderr, "Invalid UTF8 at offset 0x%06x, len %zu [%s]\n",
               offset, strlen(egc), strerror(errno));
@@ -228,6 +234,28 @@ egcpool_dump(egcpool* pool){
   pool->poolsize = 0;
   pool->poolwrite = 0;
   pool->poolused = 0;
+}
+
+static inline const char*
+egcpool_extended_gcluster(const egcpool* pool, const cell* c){
+  uint32_t idx = cell_egc_idx(c);
+  return pool->pool + idx;
+}
+
+// Duplicate the contents of EGCpool 'src' onto another, wiping out any prior
+// contents in 'dst'.
+static inline int
+egcpool_dup(egcpool* dst, const egcpool* src){
+  char* tmp;
+  if((tmp = (char*)realloc(dst->pool, src->poolsize)) == NULL){
+    return -1;
+  }
+  dst->pool = tmp;
+  dst->poolsize = src->poolsize;
+  dst->poolused = src->poolused;
+  dst->poolwrite = src->poolwrite;
+  memcpy(dst->pool, src->pool, src->poolsize);
+  return 0;
 }
 
 #ifdef __cplusplus

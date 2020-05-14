@@ -90,7 +90,7 @@ static struct {
   { NULL, NULL, false, false, false, },
   { "normal", normal_demo, false, false, false, },
   { "outro", outro, false, true, true, },
-  { NULL, NULL, false, false, false, },
+  { "pango", pango_demo, false, false, false, },
   { "qrcode", qrcode_demo, false, false, false, }, // is blank without USE_QRCODEGEN
   { "reel", reel_demo, false, false, false, },
   { "sliders", sliding_puzzle_demo, false, false, false, },

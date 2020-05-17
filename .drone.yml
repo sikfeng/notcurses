@@ -8,6 +8,7 @@ steps:
   image: dankamongmen/unstable_builder:2020-04-20a
   commands:
     - export LANG=en_US.UTF-8
+    - apt-get -y install libcairo-dev libpango1.0-dev
     - mkdir build
     - cd build
     - cmake .. -DCMAKE_BUILD_TYPE=Release # -DUSE_RUST=yes -DUSE_NETWORK=yes
@@ -23,6 +24,7 @@ steps:
   image: dankamongmen/focal:2020-04-20a
   commands:
     - export LANG=en_US.UTF-8
+    - apt-get -y install libcairo-dev libpango1.0-dev
     - mkdir build
     - cd build
     - cmake .. -DCMAKE_BUILD_TYPE=Release
@@ -38,7 +40,7 @@ steps:
   image: dankamongmen/rawhide_builder:2020-05-13a
   commands:
     - export LANG=en_US.UTF-8
-    - sudo dnf -y install make cmake libqrcodegen-devel gcc-c++ OpenImageIO-devel pandoc python3-cffi python3-devel pkgconfig ncurses-devel
+    - sudo dnf -y install make cmake libqrcodegen-devel gcc-c++ OpenImageIO-devel pandoc python3-cffi python3-devel pkgconfig ncurses-devel pango-devel cairo-devel
     - mkdir build
     - cd build
     - ls

@@ -1065,17 +1065,18 @@ int notcurses_refresh(notcurses* nc, int* restrict dimy, int* restrict dimx){
 // which cells were changed. We solve for each coordinate's cell by walking
 // down the z-buffer, looking at intersections with ncplanes. This implies
 // locking down the EGC, the attributes, and the channels for each cell.
+// Operate on rows [miny..maxy].
 static int
-notcurses_render_internal(notcurses* nc, struct crender* rvec){
-  int dimy, dimx;
-  ncplane_dim_yx(nc->stdscr, &dimy, &dimx);
+notcurses_render_internal(notcurses* nc, struct crender* rvec,
+                          int miny, int maxy, int dimx){
+  const int dimy = maxy - miny + 1;
   cell* fb = malloc(sizeof(*fb) * dimy * dimx);
   init_fb(fb, dimy, dimx);
   ncplane* p = nc->top;
   while(p){
     if(paint(p, nc->lastframe, rvec, fb, &nc->pool,
-             nc->stdscr->leny, nc->stdscr->lenx,
-             nc->stdscr->absy, nc->stdscr->absx, nc->lfdimx)){
+             dimy, dimx, nc->stdscr->absy + miny,
+             nc->stdscr->absx, nc->lfdimx)){
       free(fb);
       return -1;
     }
@@ -1096,7 +1097,7 @@ int notcurses_render(notcurses* nc){
   const size_t crenderlen = sizeof(struct crender) * nc->stdscr->leny * nc->stdscr->lenx;
   struct crender* crender = malloc(crenderlen);
   memset(crender, 0, crenderlen);
-  if(notcurses_render_internal(nc, crender) == 0){
+  if(notcurses_render_internal(nc, crender, 0, dimy - 1, nc->stdscr->lenx) == 0){
     bytes = notcurses_rasterize(nc, crender);
   }
   free(crender);

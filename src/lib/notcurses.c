@@ -375,23 +375,21 @@ inline int ncplane_cursor_move_yx(ncplane* n, int y, int x){
 ncplane* ncplane_dup(const ncplane* n, void* opaque){
   int dimy = n->leny;
   int dimx = n->lenx;
-  int aty = n->absy;
-  int atx = n->absx;
-  int y = n->y;
-  int x = n->x;
   uint32_t attr = ncplane_attr(n);
   uint64_t chan = ncplane_channels(n);
-  ncplane* newn = ncplane_create(n->nc, n->bound, dimy, dimx, aty, atx, opaque);
+  ncplane* newn = ncplane_create(n->nc, n->bound, dimy, dimx, n->absy, n->absx, opaque);
   if(newn){
     if(egcpool_dup(&newn->pool, &n->pool)){
       ncplane_destroy(newn);
       return NULL;
     }else{
-      ncplane_cursor_move_yx(newn, y, x);
+      ncplane_cursor_move_yx(newn, n->y, n->x);
       newn->attrword = attr;
       newn->channels = chan;
       ncplane_move_above_unsafe(newn, n);
       memmove(newn->fb, n->fb, sizeof(*n->fb) * dimx * dimy);
+      // we dupd the egcpool, so just dup the goffset
+      newn->basecell = n->basecell;
     }
   }
   return newn;
@@ -2073,8 +2071,8 @@ uint32_t* ncplane_rgba(const ncplane* nc, int begy, int begx, int leny, int lenx
         channels_fg_rgb(channels, &fr, &fb, &fg);
         channels_bg_rgb(channels, &br, &bb, &bg);
         // FIXME how do we deal with transparency?
-        uint32_t frgba = (fr << 24u) + (fg << 16u) + (fb << 8u) + 0xff;
-        uint32_t brgba = (br << 24u) + (bg << 16u) + (bb << 8u) + 0xff;
+        uint32_t frgba = (fr) + (fg << 8u) + (fb << 16u) + 0xff000000;
+        uint32_t brgba = (br) + (bg << 8u) + (bb << 16u) + 0xff000000;
         if((strcmp(c, " ") == 0) || (strcmp(c, "") == 0)){
           *top = *bot = brgba;
         }else if(strcmp(c, "▄") == 0){

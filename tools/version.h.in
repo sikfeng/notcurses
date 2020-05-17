@@ -3,6 +3,7 @@
 #define notcurses_VERSION_PATCH "@notcurses_VERSION_PATCH@"
 #cmakedefine DFSG_BUILD
 #cmakedefine USE_QRCODEGEN
+#cmakedefine USE_PANGO
 // exclusive with USE_OIIO
 #cmakedefine USE_FFMPEG
 // exclusive with USE_FFMPEG

@@ -334,6 +334,11 @@ typedef struct notcurses {
   struct esctrie* inputescapes; // trie of input escapes -> ncspecial_keys
   bool ownttyfp;  // do we own ttyfp (and thus must close it?)
   bool utf8;      // are we using utf-8 encoding, as hoped?
+  // render helper thread(s) (for now just one). launched at initialization,
+  // they sit around and wake up only for action.
+  pthread_t renderthread;
+  pthread_cond_t rendercond;
+  pthread_mutex_t renderlock;
 } notcurses;
 
 void sigwinch_handler(int signo);
@@ -524,12 +529,12 @@ term_emit(const char* name __attribute__ ((unused)), const char* seq,
 }
 
 static inline int
-term_bg_palindex(notcurses* nc, FILE* out, unsigned pal){
+term_bg_palindex(const notcurses* nc, FILE* out, unsigned pal){
   return term_emit("setab", tiparm(nc->setab, pal), out, false);
 }
 
 static inline int
-term_fg_palindex(notcurses* nc, FILE* out, unsigned pal){
+term_fg_palindex(const notcurses* nc, FILE* out, unsigned pal){
   return term_emit("setaf", tiparm(nc->setaf, pal), out, false);
 }
 

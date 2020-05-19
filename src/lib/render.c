@@ -248,23 +248,31 @@ lock_in_highcontrast(cell* targc, struct crender* crender){
 // compared against the last frame. If it is different, the 'rvec' bitmap is
 // updated with a 1. 'pool' is typically nc->pool, but should be whatever's
 // backing 'fb'.
+// dstabsy: topmargin
+// dstabsx: leftmargin
+// start_row: if we're a helper, what row to start rendering from
 static int
 paint(ncplane* p, cell* lastframe, struct crender* rvec,
       cell* fb, egcpool* pool, int dstleny, int dstlenx,
-      int dstabsy, int dstabsx, int lfdimx){
+      int dstabsy, int dstabsx, int lfdimx, int start_row){
   // FIXME only apply top margin to primary, only apply bottom margin to helper *workpacket*
   // side margins apply to both
   int y, x, dimy, dimx, offy, offx;
   ncplane_dim_yx(p, &dimy, &dimx);
+  // offy and offx are only meaningful for ncplane_mergedown()
   offy = p->absy - dstabsy;
+  if(start_row){
+    offy = 0;
+  }
   offx = p->absx - dstabsx;
-//fprintf(stderr, "PLANE %p %d %d %d %d %d %d\n", p, dimy, dimx, offy, offx, dstleny, dstlenx);
+  dstleny += start_row;
+//fprintf(stderr, "PAINT %p %d %d %d %d %d %d %d %d %d\n", p, dimy, dimx, offy, offx, dstleny, dstlenx, dstabsy, dstabsx, start_row);
   // skip content above or to the left of the physical screen
   int starty, startx;
   if(offy < 0){
     starty = -offy;
   }else{
-    starty = 0;
+    starty = start_row;
   }
   if(offx < 0){
     startx = -offx;
@@ -282,12 +290,13 @@ paint(ncplane* p, cell* lastframe, struct crender* rvec,
       if(absx >= dstlenx){
         break;
       }
-      cell* targc = &fb[fbcellidx(absy, dstlenx, absx)];
+      cell* targc = &fb[fbcellidx(absy - start_row, dstlenx, absx)];
       if(cell_locked_p(targc)){
         continue;
       }
       struct crender* crender = &rvec[fbcellidx(absy, dstlenx, absx)];
       const cell* vis = &p->fb[nfbcellidx(p, y, x)];
+//fprintf(stderr, "[%02d] %d/%d (abs %d/%d): %p %p\n", start_row, y - start_row, x, absy, absx, crender, vis);
       // if we never loaded any content into the cell (or obliterated it by
       // writing in a zero), use the plane's base cell.
       if(vis->gcluster == 0 && !cell_wide_right_p(vis)){
@@ -427,6 +436,9 @@ int ncplane_mergedown(ncplane* restrict src, ncplane* restrict dst){
   if(dst == NULL){
     dst = nc->stdscr;
   }
+  if(dst != nc->stdscr){
+    return -1;
+  }
   int dimy, dimx;
   ncplane_dim_yx(dst, &dimy, &dimx);
   cell* tmpfb = malloc(sizeof(*tmpfb) * dimy * dimx);
@@ -437,14 +449,14 @@ int ncplane_mergedown(ncplane* restrict src, ncplane* restrict dst){
   init_fb(tmpfb, dimy, dimx);
   init_fb(rendfb, dimy, dimx);
   if(paint(src, rendfb, rvec, tmpfb, &dst->pool, dst->leny, dst->lenx,
-           dst->absy, dst->absx, dst->lenx)){
+           dst->absy, dst->absx, dst->lenx, 0)){
     free(rvec);
     free(rendfb);
     free(tmpfb);
     return -1;
   }
   if(paint(dst, rendfb, rvec, tmpfb, &dst->pool, dst->leny, dst->lenx,
-           dst->absy, dst->absx, dst->lenx)){
+           dst->absy, dst->absx, dst->lenx, 0)){
     free(rvec);
     free(rendfb);
     free(tmpfb);
@@ -858,9 +870,6 @@ notcurses_rasterize(notcurses* nc, const struct crender* rvec){
   int ret = 0;
   int y, x;
   fseeko(out, 0, SEEK_SET);
-  // we only need to emit a coordinate if it was damaged. the damagemap is a
-  // bit per coordinate, rows by rows, column by column within a row, with the
-  // MSB being the first coordinate.
   // don't write a clearscreen. we only update things that have been changed.
   // we explicitly move the cursor at the beginning of each output line, so no
   // need to home it expliticly.
@@ -872,11 +881,6 @@ notcurses_rasterize(notcurses* nc, const struct crender* rvec){
       const size_t damageidx = innery * nc->lfdimx + innerx;
       unsigned r, g, b, br, bg, bb, palfg, palbg;
       const cell* srccell = &nc->lastframe[damageidx];
-//      cell c;
-//      memcpy(c, srccell, sizeof(*c)); // unsafe copy of gcluster
-//fprintf(stderr, "COPYING: %d from %p\n", c->gcluster, &nc->pool);
-//      const char* egc = pool_egc_copy(&nc->pool, srccell);
-//      c->gcluster = 0; // otherwise cell_release() will blow up
       if(!rvec[damageidx].damaged){
         // no need to emit a cell; what we rendered appears to already be
         // here. no updates are performed to elision state nor lastframe.
@@ -1088,7 +1092,7 @@ notcurses_render_internal(notcurses* nc, struct crender* rvec,
   while(p){
     if(paint(p, nc->lastframe, rvec, fb, &nc->pool,
              dimy, dimx, nc->stdscr->absy + miny,
-             nc->stdscr->absx, nc->lfdimx)){
+             nc->stdscr->absx, nc->lfdimx, miny)){
       free(fb);
       return -1;
     }

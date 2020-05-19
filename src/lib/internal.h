@@ -339,6 +339,13 @@ typedef struct notcurses {
   pthread_t renderthread;
   pthread_cond_t rendercond;
   pthread_mutex_t renderlock;
+  // work is dispatched by setting renderfrom_row, indicating the row to start
+  // rendering from. the renderthread will assign -1 to this, work through the
+  // bottom of the rendered area, and set this to 0 (signaling the condvar)
+  // when done. if the primary render thread completes without the work being
+  // picked up, it will simply set this to 0 itself, and proceed with the work.
+  int renderfrom_row;          // row to render from (through bottom)
+  unsigned renderthread_count; // only one or zero for now
 } notcurses;
 
 void sigwinch_handler(int signo);
@@ -368,13 +375,13 @@ mbstr_find_codepoint(const char* s, char32_t cp, int* col){
   return -1;
 }
 
-static inline struct ncplane*
-ncplane_stdplane(struct ncplane* n){
+static inline ncplane*
+ncplane_stdplane(ncplane* n){
   return notcurses_stdplane(n->nc);
 }
 
-static inline const struct ncplane*
-ncplane_stdplane_const(const struct ncplane* n){
+static inline const ncplane*
+ncplane_stdplane_const(const ncplane* n){
   return notcurses_stdplane_const(n->nc);
 }
 
@@ -685,6 +692,9 @@ ncplane_center_abs(const ncplane* n, int* RESTRICT y, int* RESTRICT x){
 
 int ncvisual_bounding_box(const struct ncvisual* ncv, int* leny, int* lenx,
                           int* offy, int* offx);
+
+int init_render_threads(notcurses* nc);
+int join_render_threads(notcurses* nc);
 
 #ifdef __cplusplus
 }

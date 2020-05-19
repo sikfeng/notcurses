@@ -1013,6 +1013,9 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
   }
   ret->suppress_banner = opts->suppress_banner;
   init_banner(ret);
+  if(init_render_threads(ret)){
+    fprintf(stderr, "\n Couldn't spin up extra render threads.\n");
+  }
   // flush on the switch to alternate screen, lest initial output be swept away
   if(ret->smcup && term_emit("smcup", ret->smcup, ret->ttyfp, true)){
     free_plane(ret->top);
@@ -1108,6 +1111,7 @@ int notcurses_stop(notcurses* nc){
                 (nc->stashstats.cellelisions * 100.0) / (nc->stashstats.cellemissions + nc->stashstats.cellelisions));
       }
     }
+    ret |= join_render_threads(nc);
     free(nc);
   }
   return ret;

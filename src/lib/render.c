@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <sys/poll.h>
 #include "internal.h"
 
@@ -1121,4 +1122,73 @@ char* notcurses_at_yx(notcurses* nc, int yoff, int xoff, uint32_t* attrword, uin
     }
   }
   return egc;
+}
+
+static void*
+renderthread(void* vnc){
+  notcurses* nc = vnc;
+  while(1){
+    if(pthread_mutex_lock(&nc->renderlock)){
+      return NULL;
+    }
+    int row = 0;
+    while(nc->renderfrom_row < 1){
+      if(pthread_cond_wait(&nc->rendercond, &nc->renderlock)){
+        return NULL;
+      }
+    }
+    row = nc->renderfrom_row;
+    nc->renderfrom_row = -1;
+    if(pthread_mutex_unlock(&nc->renderlock)){
+      return NULL;
+    }
+    // FIXME render
+    if(pthread_mutex_lock(&nc->renderlock)){
+      return NULL;
+    }
+    nc->renderfrom_row = 0;
+    if(pthread_mutex_unlock(&nc->renderlock)){
+      return NULL;
+    }
+    if(pthread_cond_signal(&nc->rendercond)){
+      return NULL;
+    }
+  }
+  return NULL;
+}
+
+int init_render_threads(notcurses* nc){
+  if(pthread_mutex_init(&nc->renderlock, NULL)){
+    return -1;
+  }
+  if(pthread_cond_init(&nc->rendercond, NULL)){
+    pthread_mutex_destroy(&nc->renderlock);
+    return -1;
+  }
+  nc->renderfrom_row = 0;
+  nc->renderthread_count = 1;
+  if(pthread_create(&nc->renderthread, NULL, renderthread, nc)){
+    nc->renderthread_count = 0;
+    pthread_cond_destroy(&nc->rendercond);
+    pthread_mutex_destroy(&nc->renderlock);
+    return -1;
+  }
+  return 0;
+}
+
+int join_render_threads(notcurses* nc){
+  void* vret = NULL;
+  int ret = 0;
+
+  if(nc->renderthread_count){
+    ret |= pthread_cancel(nc->renderthread);
+    ret |= pthread_join(nc->renderthread, &vret);
+    if(vret != PTHREAD_CANCELED){
+      ret = -1;
+    }
+    ret |= pthread_cond_destroy(&nc->rendercond);
+    ret |= pthread_mutex_destroy(&nc->renderlock);
+    nc->renderthread_count = 0;
+  }
+  return ret;
 }

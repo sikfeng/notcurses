@@ -1013,8 +1013,8 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
   }
   ret->suppress_banner = opts->suppress_banner;
   init_banner(ret);
-  if(init_render_threads(ret)){
-    fprintf(stderr, "\n Couldn't spin up extra render threads.\n");
+  if(init_render_threads(ret, !(opts->flags & NCOPTION_NO_RENDERTHREADS))){
+    fprintf(stderr, "\n Warning: couldn't spin up extra render threads.\n");
   }
   // flush on the switch to alternate screen, lest initial output be swept away
   if(ret->smcup && term_emit("smcup", ret->smcup, ret->ttyfp, true)){

@@ -707,7 +707,8 @@ ncplane_center_abs(const ncplane* n, int* RESTRICT y, int* RESTRICT x){
 int ncvisual_bounding_box(const struct ncvisual* ncv, int* leny, int* lenx,
                           int* offy, int* offx);
 
-int init_render_threads(notcurses* nc);
+// threads may currently be only 0 or 1
+int init_render_threads(notcurses* nc, int threads);
 int join_render_threads(notcurses* nc);
 
 #ifdef __cplusplus

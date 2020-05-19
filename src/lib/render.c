@@ -19,6 +19,9 @@ assign_render_work(notcurses* nc, int row){
   if(pthread_mutex_unlock(&nc->renderlock)){
     return -1;
   }
+  if(pthread_cond_signal(&nc->rendercond)){
+    return -1;
+  }
   return ret;
 }
 
@@ -1206,7 +1209,12 @@ renderthread(void* vnc){
   return NULL;
 }
 
-int init_render_threads(notcurses* nc){
+int init_render_threads(notcurses* nc, int threads){
+  nc->renderthread_count = 0;
+  nc->renderfrom_row = 0;
+  if(threads > 1 || threads < 0){
+    return -1;
+  }
   if(pthread_mutex_init(&nc->renderlock, NULL)){
     return -1;
   }
@@ -1214,7 +1222,9 @@ int init_render_threads(notcurses* nc){
     pthread_mutex_destroy(&nc->renderlock);
     return -1;
   }
-  nc->renderfrom_row = 0;
+  if(threads == 0){
+    return 0;
+  }
   nc->renderthread_count = 1;
   if(pthread_create(&nc->renderthread, NULL, renderthread, nc)){
     nc->renderthread_count = 0;

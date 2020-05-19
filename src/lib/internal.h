@@ -78,6 +78,18 @@ typedef struct ncplane {
   bool scrolling;       // is scrolling enabled? always disabled by default
 } ncplane;
 
+// Extracellular state for a cell during the render process. This array is
+// passed along to rasterization, which uses only the 'damaged' bools.
+struct crender {
+  ncplane *p;
+  unsigned fgblends;
+  unsigned bgblends;
+  bool damaged;       // also used in rasterization
+  // iff CELL_ALPHA_HIGHCONTRAST is in play, we apply the HSV flip once the
+  // background is locked in. set highcontrast to indicate this.
+  bool highcontrast;
+};
+
 // current presentation state of the terminal. it is carried across render
 // instances. initialize everything to 0 on a terminal reset / startup.
 typedef struct renderstate {
@@ -108,6 +120,8 @@ typedef struct renderstate {
   bool fgpalelidable;
   bool bgpalelidable;
   bool defaultelidable;
+
+  struct crender* rvec;
 } renderstate;
 
 // ncmenu_item and ncmenu_section have internal and (minimal) external forms

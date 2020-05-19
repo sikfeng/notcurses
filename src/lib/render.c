@@ -5,6 +5,23 @@
 #include <sys/poll.h>
 #include "internal.h"
 
+// assign the area starting at row to the helper render thread. row is an
+// absolute row relative to the display area, margins included.
+static int
+assign_render_work(notcurses* nc, int row){
+  int ret = -1;
+  if(pthread_mutex_lock(&nc->renderlock)){
+    return -1;
+  }
+  if(nc->renderfrom_row == 0){
+    nc->renderfrom_row = row;
+  }
+  if(pthread_mutex_unlock(&nc->renderlock)){
+    return -1;
+  }
+  return ret;
+}
+
 // Check whether the terminal geometry has changed, and if so, copies what can
 // be copied from the old stdscr. Assumes that the screen is always anchored at
 // the same origin. Also syncs up lastframe.
@@ -170,18 +187,6 @@ cell_locked_p(const cell* p){
   return 0;
 }
 
-// Extracellular state for a cell during the render process. This array is
-// passed along to rasterization, which uses only the 'damaged' bools.
-struct crender {
-  ncplane *p;
-  unsigned fgblends;
-  unsigned bgblends;
-  bool damaged;       // also used in rasterization
-  // if CELL_ALPHA_HIGHCONTRAST is in play, we apply the HSV flip once the
-  // background is locked in. set highcontrast to indicate this.
-  bool highcontrast;
-};
-
 // Emit fchannel with RGB changed to contrast effectively against bchannel.
 static uint32_t
 highcontrast(uint32_t bchannel){
@@ -237,12 +242,15 @@ lock_in_highcontrast(cell* targc, struct crender* crender){
 // ultimately 'lastframe' (we can't always write directly into 'lastframe',
 // because we need build state to solve certain cells, and need compare their
 // solved result to the last frame). Whenever a cell is locked in, it is
-// compared against the last frame. If it is different, the 'rvec' bitmap is updated with a 1. 'pool' is typically nc->pool, but can
-// be whatever's backing fb.
+// compared against the last frame. If it is different, the 'rvec' bitmap is
+// updated with a 1. 'pool' is typically nc->pool, but should be whatever's
+// backing 'fb'.
 static int
 paint(ncplane* p, cell* lastframe, struct crender* rvec,
       cell* fb, egcpool* pool, int dstleny, int dstlenx,
       int dstabsy, int dstabsx, int lfdimx){
+  // FIXME only apply top margin to primary, only apply bottom margin to helper *workpacket*
+  // side margins apply to both
   int y, x, dimy, dimx, offy, offx;
   ncplane_dim_yx(p, &dimy, &dimx);
   offy = p->absy - dstabsy;
@@ -1088,6 +1096,35 @@ notcurses_render_internal(notcurses* nc, struct crender* rvec,
   return 0;
 }
 
+// called when the primary thread has completed its section of the screen.
+// waits for the helper render to complete, or handles the work itself if
+// the render thread hasn't accepted the work.
+static int
+block_on_render(notcurses* nc){
+  int row;
+  if(pthread_mutex_lock(&nc->renderlock)){
+    return -1;
+  }
+  while(nc->renderfrom_row < 0){
+    if(pthread_cond_wait(&nc->rendercond, &nc->renderlock)){
+      return -1;
+    }
+  }
+  // if we got here and the helper thread hasn't taken the work, we'll
+  // handle it ourselves, fuck you very much
+  row = nc->renderfrom_row;
+  nc->renderfrom_row = 0;
+  if(pthread_mutex_unlock(&nc->renderlock)){
+    return -1;
+  }
+  if(row == 0){
+    return 0;
+  }
+  return notcurses_render_internal(nc, nc->rstate.rvec, row,
+                                   nc->stdscr->leny - 1,
+                                   nc->stdscr->lenx);
+}
+
 int notcurses_render(notcurses* nc){
   struct timespec start, done;
   int ret;
@@ -1095,13 +1132,17 @@ int notcurses_render(notcurses* nc){
   int dimy, dimx;
   notcurses_resize(nc, &dimy, &dimx);
   int bytes = -1;
-  const size_t crenderlen = sizeof(struct crender) * nc->stdscr->leny * nc->stdscr->lenx;
+  const size_t crenderlen = sizeof(struct crender) * dimy * dimx;
   struct crender* crender = malloc(crenderlen);
   memset(crender, 0, crenderlen);
-  if(notcurses_render_internal(nc, crender, 0, dimy - 1, nc->stdscr->lenx) == 0){
+  nc->rstate.rvec = crender;
+  // we'll take the extra row ourselves, if they're unbalanced
+  assign_render_work(nc, (dimy + 1) / 2);
+  if(notcurses_render_internal(nc, crender, 0, (dimy + 1) / 2 - 1, dimx) == 0){
+    block_on_render(nc);
     bytes = notcurses_rasterize(nc, crender);
   }
-  free(crender);
+  free(nc->rstate.rvec); // FIXME preserve this across runs?
   clock_gettime(CLOCK_MONOTONIC, &done);
   update_render_stats(&done, &start, &nc->stats, bytes);
   ret = bytes >= 0 ? 0 : -1;
@@ -1124,6 +1165,11 @@ char* notcurses_at_yx(notcurses* nc, int yoff, int xoff, uint32_t* attrword, uin
   return egc;
 }
 
+static void
+unlock_mutex(void* vmutex){
+  pthread_mutex_unlock(vmutex);
+}
+
 static void*
 renderthread(void* vnc){
   notcurses* nc = vnc;
@@ -1132,6 +1178,7 @@ renderthread(void* vnc){
       return NULL;
     }
     int row = 0;
+    pthread_cleanup_push(unlock_mutex, &nc->renderlock);
     while(nc->renderfrom_row < 1){
       if(pthread_cond_wait(&nc->rendercond, &nc->renderlock)){
         return NULL;
@@ -1139,14 +1186,16 @@ renderthread(void* vnc){
     }
     row = nc->renderfrom_row;
     nc->renderfrom_row = -1;
-    if(pthread_mutex_unlock(&nc->renderlock)){
-      return NULL;
-    }
-    // FIXME render
+    pthread_cleanup_pop(1);
+    int ret = notcurses_render_internal(nc, nc->rstate.rvec, row,
+                                        nc->stdscr->leny - 1,
+                                        nc->stdscr->lenx);
     if(pthread_mutex_lock(&nc->renderlock)){
       return NULL;
     }
-    nc->renderfrom_row = 0;
+    if(ret == 0){
+      nc->renderfrom_row = 0; // FIXME indicate an error?
+    }
     if(pthread_mutex_unlock(&nc->renderlock)){
       return NULL;
     }

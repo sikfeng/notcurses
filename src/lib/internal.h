@@ -352,7 +352,7 @@ typedef struct notcurses {
   // they sit around and wake up only for action.
   pthread_t renderthread;
   pthread_cond_t rendercond;
-  pthread_mutex_t renderlock;
+  pthread_mutex_t renderlock, poollock;
   // work is dispatched by setting renderfrom_row, indicating the row to start
   // rendering from. the renderthread will assign -1 to this, work through the
   // bottom of the rendered area, and set this to 0 (signaling the condvar)

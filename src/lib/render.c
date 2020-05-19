@@ -255,6 +255,7 @@ static int
 paint(ncplane* p, cell* lastframe, struct crender* rvec,
       cell* fb, egcpool* pool, int dstleny, int dstlenx,
       int dstabsy, int dstabsx, int lfdimx, int start_row){
+  notcurses* nc = ncplane_notcurses(p);
   // FIXME only apply top margin to primary, only apply bottom margin to helper *workpacket*
   // side margins apply to both
   int y, x, dimy, dimx, offy, offx;
@@ -371,6 +372,7 @@ fprintf(stderr, "WROTE %u [%c] to %d/%d (%d/%d)\n", targc->gcluster, prevcell->g
 }else{
 fprintf(stderr, "WROTE %u [%s] to %d/%d (%d/%d)\n", targc->gcluster, extended_gcluster(crender->p, targc), y, x, absy, absx);
 }*/
+        pthread_mutex_lock(&nc->poollock);
         if(cellcmp_and_dupfar(pool, prevcell, crender->p, targc)){
           crender->damaged = true;
           if(cell_wide_left_p(targc)){
@@ -388,6 +390,7 @@ fprintf(stderr, "WROTE %u [%s] to %d/%d (%d/%d)\n", targc->gcluster, extended_gc
             }
           }
         }
+        pthread_mutex_unlock(&nc->poollock);
       }
     }
   }
@@ -1218,11 +1221,16 @@ int init_render_threads(notcurses* nc, int threads){
   if(threads > 1 || threads < 0){
     return -1;
   }
+  if(pthread_mutex_init(&nc->poollock, NULL)){
+    return -1;
+  }
   if(pthread_mutex_init(&nc->renderlock, NULL)){
+    pthread_mutex_destroy(&nc->poollock);
     return -1;
   }
   if(pthread_cond_init(&nc->rendercond, NULL)){
     pthread_mutex_destroy(&nc->renderlock);
+    pthread_mutex_destroy(&nc->poollock);
     return -1;
   }
   if(threads == 0){
@@ -1233,6 +1241,7 @@ int init_render_threads(notcurses* nc, int threads){
     nc->renderthread_count = 0;
     pthread_cond_destroy(&nc->rendercond);
     pthread_mutex_destroy(&nc->renderlock);
+    pthread_mutex_destroy(&nc->poollock);
     return -1;
   }
   return 0;
@@ -1250,6 +1259,7 @@ int join_render_threads(notcurses* nc){
     }
     ret |= pthread_cond_destroy(&nc->rendercond);
     ret |= pthread_mutex_destroy(&nc->renderlock);
+    ret |= pthread_mutex_destroy(&nc->poollock);
     nc->renderthread_count = 0;
   }
   return ret;

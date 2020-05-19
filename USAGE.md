@@ -79,6 +79,12 @@ typedef enum {
 // doing something weird (setting a locale not based on LANG).
 #define NCOPTION_INHIBIT_SETLOCALE 0x0001
 
+// notcurses_init() will spawn one or more (currently only one) helper
+// render threads unless this is set. the helper thread(s) ought improve
+// performance if there are available resources, but can slightly diminish
+// performance otherwise.
+#define NCOPTION_NO_RENDERTHREADS  0x0002
+
 // Configuration for notcurses_init().
 typedef struct notcurses_options {
   // The name of the terminfo database entry describing this terminal. If NULL,

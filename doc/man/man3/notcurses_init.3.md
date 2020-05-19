@@ -12,6 +12,7 @@ notcurses_init - initialize a notcurses instance
 
 ```c
 #define NCOPTION_INHIBIT_SETLOCALE 0x0001
+#define NCOPTION_NO_RENDERTHREADS  0x0002
 
 typedef struct notcurses_options {
   const char* termtype;
@@ -91,6 +92,10 @@ zero. The following flags are defined:
     the **LANG** environment variable. Your program should call **setlocale(3)**
     itself, usually as one of the first lines.
 
+* **NCOPTION_NO_RENDERTHREADS**: Unless this flag is set, **notcurses_init**
+    will spawn one or more (currently only one) helper render threads. The
+    helper thread(s) ought improve performance if there are available
+    resources, but can slightly diminish performance otherwise.
 
 ## Fatal signals
 

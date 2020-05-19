@@ -1143,17 +1143,10 @@ int notcurses_render(notcurses* nc){
   struct crender* crender = malloc(crenderlen);
   memset(crender, 0, crenderlen);
   nc->rstate.rvec = crender;
-  if(nc->renderthread_count){
-    // we'll take the extra row ourselves, if they're unbalanced
-    assign_render_work(nc, (dimy + 1) / 2);
-    if(notcurses_render_internal(nc, crender, 0, (dimy + 1) / 2 - 1, dimx) == 0){
-      block_on_render(nc);
-      bytes = notcurses_rasterize(nc, crender);
-    }
-  }else{
-    if(notcurses_render_internal(nc, crender, 0, dimy - 1, dimx) == 0){
-      bytes = notcurses_rasterize(nc, crender);
-    }
+  assign_render_work(nc, (dimy + 1) / 2);
+  if(notcurses_render_internal(nc, crender, 0, (dimy + 1) / 2 - 1, dimx) == 0){
+    block_on_render(nc);
+    bytes = notcurses_rasterize(nc, crender);
   }
   free(nc->rstate.rvec); // FIXME preserve this across runs?
   clock_gettime(CLOCK_MONOTONIC, &done);

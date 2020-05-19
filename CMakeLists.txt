@@ -53,7 +53,7 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(TERMINFO REQUIRED tinfo>=6.1)
 if(${USE_PANGO})
-pkg_check_modules(PANGO REQUIRED pangocairo>=1.42.3)
+pkg_check_modules(PANGOCAIRO REQUIRED pangocairo>=1.42.3)
 endif()
 if(${USE_FFMPEG})
 pkg_check_modules(AVCODEC REQUIRED libavcodec>=57.0)
@@ -97,19 +97,19 @@ target_include_directories(notcurses
     include
     "${PROJECT_BINARY_DIR}/include"
     "${TERMINFO_INCLUDE_DIRS}"
-    "${PANGO_INCLUDE_DIRS}"
+    "${PANGOCAIRO_INCLUDE_DIRS}"
 )
 target_include_directories(notcurses-static
   PRIVATE
     include
     "${PROJECT_BINARY_DIR}/include"
     "${TERMINFO_STATIC_INCLUDE_DIRS}"
-    "${PANGO_INCLUDE_DIRS}"
+    "${PANGOCAIRO_INCLUDE_DIRS}"
 )
 target_link_libraries(notcurses
   PRIVATE
     "${TERMINFO_LIBRARIES}"
-    "${PANGO_LIBRARIES}"
+    "${PANGOCAIRO_LIBRARIES}"
     "${LIBRT}"
   PUBLIC
     Threads::Threads
@@ -117,7 +117,7 @@ target_link_libraries(notcurses
 target_link_libraries(notcurses-static
   PRIVATE
     "${TERMINFO_STATIC_LIBRARIES}"
-    "${PANGO_LIBRARIES}"
+    "${PANGOCAIRO_LIBRARIES}"
     "${LIBRT}"
   PUBLIC
     Threads::Threads
@@ -379,14 +379,22 @@ foreach(f ${POCSRCS})
   get_filename_component(fe "${f}" NAME_WE)
   add_executable(${fe} ${f})
   target_include_directories(${fe}
-    PRIVATE include "${TERMINFO_INCLUDE_DIRS}"
-    "${PROJECT_BINARY_DIR}/include"
+    PRIVATE
+      include
+      "${PROJECT_BINARY_DIR}/include"
+      "${TERMINFO_INCLUDE_DIRS}"
+      "${PANGOCAIRO_INCLUDE_DIRS}"
   )
   target_link_libraries(${fe}
-    PRIVATE notcurses++ "${TERMINFO_LIBRARIES}"
+    PRIVATE
+      notcurses++
+      "${TERMINFO_LIBRARIES}"
+      "${PANGOCAIRO_LIBRARIES}"
   )
   target_link_directories(${fe}
-    PRIVATE "${TERMINFO_LIBRARY_DIRS}"
+    PRIVATE
+      "${TERMINFO_LIBRARY_DIRS}"
+      "${PANGOCAIRO_LIBRARY_DIRS}"
   )
 endforeach()
 

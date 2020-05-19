@@ -1,7 +1,7 @@
 This document attempts to list user-visible changes and any major internal
 rearrangements of Notcurses.
 
-* 1.4.2 (not yet released)
+* 1.4.2.3 (2020-05-17)
   * Added `notcurses_canutf8()`, to verify use of UTF-8 encoding.
   * Fixed bug in `ncvisual_from_plane()` when invoked on the standard plane.
   * `ncvisual_from_plane()` now accepts the same four geometric parameters
@@ -20,6 +20,9 @@ rearrangements of Notcurses.
   * The `streamcb` type definition now accepts a `const struct timespec*` as
     its third argument. This is the absolute time viz `CLOCK_MONOTONIC` through
     which the frame ought be displayed. The callback must now effect delay.
+  * Mouse coordinates are now properly translated for any margins.
+  * `qprefix()` and `bprefix()` now take a `uintmax_t` in place of an
+    `unsigned`, to match `ncprefix`.
 
 * 1.4.1 (2020-05-11)
   * No user-visible changes (fixed two unit tests).

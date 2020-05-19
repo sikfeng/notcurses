@@ -24,7 +24,7 @@ mandelbrot(int y, int x, int dy, int dx){
 static int
 mcell(uint32_t* c, int y, int x, int dy, int dx){
   int iter = mandelbrot(y, x, dy, dx);
-  *c = ((255 - iter) << 24u) + ((255 - iter) << 16u) + ((255 - iter) << 8u);
+  *c = (0xff << 24u) + ((255 - iter) << 16u) + ((255 - iter) << 8u) + (255 - iter);
   return 0;
 }
 
@@ -36,19 +36,17 @@ offset(uint32_t* rgba, int y, int x, int dx){
 // make a pixel array out from the center, blitting it as we go
 int normal_demo(struct notcurses* nc){
   int dy, dx;
-  // we can't resize (and thus can't rotate) the standard plane, so dup it
-  struct ncplane* n = ncplane_dup(notcurses_stddim_yx(nc, &dy, &dx), NULL);
-  if(n == NULL){
-    return -1;
-  }
-  ncplane_erase(n);
-  struct ncvisual* ncv = NULL;
+  struct ncplane* nstd = notcurses_stddim_yx(nc, &dy, &dx);
+  ncplane_erase(nstd);
+  struct ncplane* n = NULL;
   dy *= VSCALE; // double-block trick means both 2x resolution and even linecount yay
   uint32_t* rgba = malloc(sizeof(*rgba) * dy * dx);
   if(!rgba){
     goto err;
   }
-  memset(rgba, 0, sizeof(*rgba) * dy * dx);
+  for(int off = 0 ; off < dy * dx ; ++off){
+    rgba[off] = 0xff000000;
+  }
   int y;
   if(dy / VSCALE % 2){
     y = dy / VSCALE + 1;
@@ -58,6 +56,8 @@ int normal_demo(struct notcurses* nc){
       }
     }
   }
+  struct timespec scaled;
+  timespec_div(&demodelay, dy, &scaled);
   for(y = 0 ; y < dy / 2 ; ++y){
     for(int x = 0 ; x < dx ; ++x){
       if(mcell(offset(rgba, dy / 2 - y, x, dx), dy / 2 - y, x, dy, dx)){
@@ -67,33 +67,52 @@ int normal_demo(struct notcurses* nc){
         goto err;
       }
     }
-    if(ncblit_rgba(n, 0, 0, dx * sizeof(*rgba), rgba, 0, 0, dy, dx) < 0){
+    if(ncblit_rgba(nstd, 0, 0, dx * sizeof(*rgba), rgba, 0, 0, dy, dx) < 0){
       goto err;
     }
     DEMO_RENDER(nc);
+    demo_nanosleep(nc, &scaled);
   }
   free(rgba);
   rgba = NULL;
-  ncv = ncvisual_from_plane(n, 0, 0, -1, -1);
-  if(!ncv){
-    goto err;
+  timespec_div(&demodelay, 8, &scaled);
+  // we can't resize (and thus can't rotate) the standard plane, so dup it
+  n = ncplane_dup(nstd, NULL);
+  if(n == NULL){
+    return -1;
   }
-  for(int i = 1 ; i < 100 ; ++i){
-    if(ncvisual_rotate(ncv, M_PI / 2)){
+  // we can't rotate a plane unless it has an even number of columns :/
+  int nx;
+  if((nx = ncplane_dim_x(n)) % 2){
+    if(ncplane_resize_simple(n, ncplane_dim_y(n), --nx)){
       goto err;
     }
-    if(ncvisual_render(ncv, 0, 0, -1, -1) <= 0){
+  }
+  ncplane_erase(nstd);
+  cell c = CELL_SIMPLE_INITIALIZER(' ');
+  cell_set_fg_rgb(&c, 0xff, 0xff, 0xff);
+  cell_set_bg_rgb(&c, 0xff, 0xff, 0xff);
+  ncplane_polyfill_yx(nstd, 0, 0, &c);
+  cell_release(nstd, &c);
+  for(int i = 0 ; i < 16 ; ++i){
+    demo_nanosleep(nc, &scaled);
+    if(ncplane_rotate_cw(n)){
       goto err;
     }
     DEMO_RENDER(nc);
   }
-  ncvisual_destroy(ncv);
+  for(int i = 0 ; i < 16 ; ++i){
+    demo_nanosleep(nc, &scaled);
+    if(ncplane_rotate_ccw(n)){
+      goto err;
+    }
+    DEMO_RENDER(nc);
+  }
   ncplane_destroy(n);
   return 0;
 
 err:
   free(rgba);
-  ncvisual_destroy(ncv);
   ncplane_destroy(n);
   return -1;
 }

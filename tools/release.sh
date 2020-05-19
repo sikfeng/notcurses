@@ -12,16 +12,16 @@ VERSION="$2"
 vi NEWS.md
 
 git clean -f -d -x
-BUMP="CMakeLists.txt doc/Doxyfile doc/FreeBSD-Makefile doc/man/man*/* doc/man/index.html python/setup.py rust/*/Cargo.toml rust/libnotcurses-sys/build.rs"
+BUMP="CMakeLists.txt doc/Doxyfile doc/man/man*/* doc/man/index.html python/setup.py rust/*/Cargo.toml rust/libnotcurses-sys/build.rs"
 for i in $BUMP ; do
   sed -i -e "s/$OLDVERSION/$VERSION/g" $i
 done
 echo "Checking for instances of $OLDVERSION..."
-grep -rF "$OLDVERSION" *
+grep -rF "$OLDVERSION" * || true
 git commit -a -m v$VERSION
 git push
 git pull
-git tag -a v$VERSION -m "v$VERSION -s"
+git tag -a v$VERSION -m v$VERSION -s
 git push origin --tags
 git pull
 wget https://github.com/dankamongmen/notcurses/archive/v$VERSION.tar.gz

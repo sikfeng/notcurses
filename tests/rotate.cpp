@@ -1,6 +1,7 @@
 #include "main.h"
 #include <cmath>
 #include <vector>
+#include <arpa/inet.h>
 
 void RotateCW(struct notcurses* nc, struct ncplane* n) {
     CHECK(0 == notcurses_render(nc));
@@ -27,19 +28,16 @@ void RotateCCW(struct notcurses* nc, struct ncplane* n) {
 }
 
 TEST_CASE("Rotate") {
-  if(getenv("TERM") == nullptr){
-    return;
-  }
   if(!enforce_utf8()){
     return;
   }
   notcurses_options nopts{};
   nopts.inhibit_alternate_screen = true;
   nopts.suppress_banner = true;
-  FILE* outfp_ = fopen("/dev/tty", "wb");
-  REQUIRE(outfp_);
-  struct notcurses* nc_ = notcurses_init(&nopts, outfp_);
-  REQUIRE(nc_);
+  struct notcurses* nc_ = notcurses_init(&nopts, nullptr);
+  if(!nc_){
+    return;
+  }
   int dimy, dimx;
   struct ncplane* n_ = notcurses_stddim_yx(nc_, &dimy, &dimx);
   REQUIRE(n_);
@@ -122,8 +120,8 @@ TEST_CASE("Rotate") {
     CHECK(0 == notcurses_render(nc_));
     uint32_t* rgbaret = ncplane_rgba(ncvisual_plane(ncv), 0, 0, -1, -1);
     REQUIRE(rgbaret);
-    for(int i = 0 ; i < rendered ; ++i){
-      CHECK(rgbaret[i] == rgba[i]);
+    for(int i = 0 ; i < rendered / 2 ; ++i){
+      CHECK(rgbaret[i] == htonl(rgba[i]));
     }
     free(rgbaret);
     for(int x = 0 ; x < width ; ++x){
@@ -164,7 +162,7 @@ TEST_CASE("Rotate") {
     uint32_t* rgbaret = ncplane_rgba(ncvisual_plane(ncv), 0, 0, -1, -1);
     REQUIRE(rgbaret);
     for(int i = 0 ; i < rendered ; ++i){
-      CHECK(rgbaret[i] == rgba[i]);
+      CHECK(rgbaret[i] == htonl(rgba[i]));
     }
     free(rgbaret);
     for(int x = 0 ; x < width ; ++x){
@@ -194,6 +192,5 @@ TEST_CASE("Rotate") {
   }
 
   CHECK(0 == notcurses_stop(nc_));
-  CHECK(0 == fclose(outfp_));
 
 }

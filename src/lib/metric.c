@@ -5,8 +5,7 @@
 #include "notcurses/notcurses.h"
 
 const char *ncmetric(uintmax_t val, uintmax_t decimal, char *buf, int omitdec,
-                     unsigned mul, int uprefix){
-  const unsigned mult = mul; // FIXME kill
+                     unsigned mult, int uprefix){
   // these two must have the same number of elements
   const wchar_t prefixes[] =    L"KMGTPEZY"; // 10^21-1 encompasses 2^64-1
   const wchar_t subprefixes[] = L"mµnpfazy"; // 10^24-1
@@ -15,6 +14,9 @@ const char *ncmetric(uintmax_t val, uintmax_t decimal, char *buf, int omitdec,
 
   fesetround(FE_TOWARDZERO);
   if(decimal == 0 || mult == 0){
+    return NULL;
+  }
+  if(decimal > UINTMAX_MAX / 10){
     return NULL;
   }
   dv = mult;
@@ -36,8 +38,8 @@ const char *ncmetric(uintmax_t val, uintmax_t decimal, char *buf, int omitdec,
       }
     }
   }
+  int sprintfed;
   if(dv != mult){ // if consumed == 0, dv must equal mult
-    int sprintfed;
     if(val / dv > 0){
       ++consumed;
     }else{
@@ -64,16 +66,20 @@ const char *ncmetric(uintmax_t val, uintmax_t decimal, char *buf, int omitdec,
   // val / decimal < dv (or we ran out of prefixes)
   if(omitdec && val % decimal == 0){
     if(consumed){
-      sprintf(buf, "%ju%lc", val / decimal, subprefixes[consumed - 1]);
+      sprintfed = sprintf(buf, "%ju%lc", val / decimal, subprefixes[consumed - 1]);
     }else{
       sprintf(buf, "%ju", val / decimal);
     }
   }else{
     if(consumed){
-      sprintf(buf, "%.2f%lc", (double)val / decimal, subprefixes[consumed - 1]);
+      sprintfed = sprintf(buf, "%.2f%lc", (double)val / decimal, subprefixes[consumed - 1]);
     }else{
       sprintf(buf, "%.2f", (double)val / decimal);
     }
+  }
+  if(consumed && uprefix){
+    buf[sprintfed] = uprefix;
+    buf[sprintfed + 1] = '\0';
   }
   return buf;
 }

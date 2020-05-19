@@ -47,19 +47,19 @@ static int
 notcurses_stop_minimal(notcurses* nc){
   int ret = 0;
   drop_signals(nc);
-  if(nc->rmcup && term_emit("rmcup", nc->rmcup, nc->ttyfp, true)){
+  if(nc->tcache.rmcup && term_emit("rmcup", nc->tcache.rmcup, nc->ttyfp, true)){
     ret = -1;
   }
-  if(nc->cnorm && term_emit("cnorm", nc->cnorm, nc->ttyfp, true)){
+  if(nc->tcache.cnorm && term_emit("cnorm", nc->tcache.cnorm, nc->ttyfp, true)){
     ret = -1;
   }
-  if(nc->op && term_emit("op", nc->op, nc->ttyfp, true)){
+  if(nc->tcache.op && term_emit("op", nc->tcache.op, nc->ttyfp, true)){
     ret = -1;
   }
-  if(nc->sgr0 && term_emit("sgr0", nc->sgr0, nc->ttyfp, true)){
+  if(nc->tcache.sgr0 && term_emit("sgr0", nc->tcache.sgr0, nc->ttyfp, true)){
     ret = -1;
   }
-  if(nc->oc && term_emit("oc", nc->oc, nc->ttyfp, true)){
+  if(nc->tcache.oc && term_emit("oc", nc->tcache.oc, nc->ttyfp, true)){
     ret = -1;
   }
   ret |= notcurses_mouse_disable(nc);
@@ -239,19 +239,6 @@ int update_term_dimensions(int fd, int* rows, int* cols){
   }
   if(cols){
     *cols = ws.ws_col;
-  }
-  return 0;
-}
-
-static int
-term_verify_seq(char** gseq, const char* name){
-  char* seq;
-  if(gseq == NULL){
-    gseq = &seq;
-  }
-  *gseq = tigetstr(name);
-  if(*gseq == NULL || *gseq == (char*)-1){
-    return -1;
   }
   return 0;
 }
@@ -530,141 +517,6 @@ int ncplane_destroy(ncplane* ncp){
   return 0;
 }
 
-static bool
-query_rgb(void){
-  bool rgb = tigetflag("RGB") == 1;
-  if(!rgb){
-    // RGB terminfo capability being a new thing (as of ncurses 6.1), it's not commonly found in
-    // terminal entries today. COLORTERM, however, is a de-facto (if imperfect/kludgy) standard way
-    // of indicating TrueColor support for a terminal. The variable takes one of two case-sensitive
-    // values:
-    //
-    //   truecolor
-    //   24bit
-    //
-    // https://gist.github.com/XVilka/8346728#true-color-detection gives some more information about
-    // the topic
-    //
-    const char* cterm = getenv("COLORTERM");
-    rgb = cterm && (strcmp(cterm, "truecolor") == 0 || strcmp(cterm, "24bit") == 0);
-  }
-  return rgb;
-}
-
-static int
-interrogate_terminfo(notcurses* nc, const notcurses_options* opts, int* dimy, int* dimx){
-  *dimy = *dimx = 0;
-  update_term_dimensions(nc->ttyfd, dimy, dimx);
-  nc->truecols = *dimx;
-  char* shortname_term = termname();
-  char* longname_term = longname();
-  if(!opts->suppress_banner){
-    fprintf(stderr, "Term: %dx%d %s (%s)\n", *dimx, *dimy,
-            shortname_term ? shortname_term : "?",
-            longname_term ? longname_term : "?");
-  }
-  nc->RGBflag = query_rgb();
-  if((nc->colors = tigetnum("colors")) <= 0){
-    if(!opts->suppress_banner){
-      fprintf(stderr, "This terminal doesn't appear to support colors\n");
-    }
-    nc->colors = 1;
-    nc->CCCflag = false;
-    nc->RGBflag = false;
-    nc->initc = NULL;
-  }else{
-    term_verify_seq(&nc->initc, "initc");
-    if(nc->initc){
-      nc->CCCflag = tigetflag("ccc") == 1;
-    }else{
-      nc->CCCflag = false;
-    }
-  }
-  term_verify_seq(&nc->cup, "cup");
-  if(nc->cup == NULL){
-    fprintf(stderr, "Required terminfo capability 'cup' not defined\n");
-    return -1;
-  }
-  nc->AMflag = tigetflag("am") == 1;
-  if(!nc->AMflag){
-    fprintf(stderr, "Required terminfo capability 'am' not defined\n");
-    return -1;
-  }
-  term_verify_seq(&nc->civis, "civis");
-  term_verify_seq(&nc->cnorm, "cnorm");
-  term_verify_seq(&nc->standout, "smso"); // smso / rmso
-  term_verify_seq(&nc->uline, "smul");
-  term_verify_seq(&nc->reverse, "reverse");
-  term_verify_seq(&nc->blink, "blink");
-  term_verify_seq(&nc->dim, "dim");
-  term_verify_seq(&nc->bold, "bold");
-  term_verify_seq(&nc->italics, "sitm");
-  term_verify_seq(&nc->italoff, "ritm");
-  term_verify_seq(&nc->sgr, "sgr");
-  term_verify_seq(&nc->sgr0, "sgr0");
-  term_verify_seq(&nc->op, "op");
-  term_verify_seq(&nc->oc, "oc");
-  term_verify_seq(&nc->home, "home");
-  term_verify_seq(&nc->clearscr, "clear");
-  term_verify_seq(&nc->cleareol, "el");
-  term_verify_seq(&nc->clearbol, "el1");
-  term_verify_seq(&nc->cuf, "cuf"); // n non-destructive spaces
-  term_verify_seq(&nc->cub, "cub"); // n non-destructive backspaces
-  term_verify_seq(&nc->cuf1, "cuf1"); // non-destructive space
-  term_verify_seq(&nc->cub1, "cub1"); // non-destructive backspace
-  term_verify_seq(&nc->smkx, "smkx"); // set application mode
-  if(nc->smkx){
-    if(putp(tiparm(nc->smkx)) != OK){
-      fprintf(stderr, "Error entering application mode\n");
-      return -1;
-    }
-  }
-  if(prep_special_keys(nc)){
-    return -1;
-  }
-  // Some terminals cannot combine certain styles with colors. Don't advertise
-  // support for the style in that case.
-  int nocolor_stylemask = tigetnum("ncv");
-  if(nocolor_stylemask > 0){
-    if(nocolor_stylemask & WA_STANDOUT){ // ncv is composed of terminfo bits, not ours
-      nc->standout = NULL;
-    }
-    if(nocolor_stylemask & WA_UNDERLINE){
-      nc->uline = NULL;
-    }
-    if(nocolor_stylemask & WA_REVERSE){
-      nc->reverse = NULL;
-    }
-    if(nocolor_stylemask & WA_BLINK){
-      nc->blink = NULL;
-    }
-    if(nocolor_stylemask & WA_DIM){
-      nc->dim = NULL;
-    }
-    if(nocolor_stylemask & WA_BOLD){
-      nc->bold = NULL;
-    }
-    if(nocolor_stylemask & WA_ITALIC){
-      nc->italics = NULL;
-    }
-  }
-  term_verify_seq(&nc->getm, "getm"); // get mouse events
-  // Not all terminals support setting the fore/background independently
-  term_verify_seq(&nc->setaf, "setaf");
-  term_verify_seq(&nc->setab, "setab");
-  term_verify_seq(&nc->smkx, "smkx");
-  term_verify_seq(&nc->rmkx, "rmkx");
-  // Neither of these is supported on e.g. the "linux" virtual console.
-  if(!opts->inhibit_alternate_screen){
-    term_verify_seq(&nc->smcup, "smcup");
-    term_verify_seq(&nc->rmcup, "rmcup");
-  }else{
-    nc->smcup = nc->rmcup = NULL;
-  }
-  nc->top = nc->stdscr = NULL;
-  return 0;
-}
-
 static int
 make_nonblocking(FILE* fp){
   int fd = fileno(fp);
@@ -774,43 +626,9 @@ ncdirect* ncdirect_init(const char* termtype, FILE* outfp){
     free(ret);
     return NULL;
   }
-  term_verify_seq(&ret->standout, "smso"); // smso / rmso
-  term_verify_seq(&ret->uline, "smul");
-  term_verify_seq(&ret->reverse, "reverse");
-  term_verify_seq(&ret->blink, "blink");
-  term_verify_seq(&ret->dim, "dim");
-  term_verify_seq(&ret->bold, "bold");
-  term_verify_seq(&ret->italics, "sitm");
-  term_verify_seq(&ret->italoff, "ritm");
-  term_verify_seq(&ret->sgr, "sgr");
-  term_verify_seq(&ret->sgr0, "sgr0");
-  term_verify_seq(&ret->op, "op");
-  term_verify_seq(&ret->oc, "oc");
-  term_verify_seq(&ret->setaf, "setaf");
-  term_verify_seq(&ret->setab, "setab");
-  term_verify_seq(&ret->clear, "clear");
-  term_verify_seq(&ret->cup, "cup");
-  term_verify_seq(&ret->cuu, "cuu"); // move N up
-  term_verify_seq(&ret->cuf, "cuf"); // move N right
-  term_verify_seq(&ret->cud, "cud"); // move N down
-  term_verify_seq(&ret->cub, "cub"); // move N left
-  term_verify_seq(&ret->hpa, "hpa");
-  term_verify_seq(&ret->vpa, "vpa");
-  term_verify_seq(&ret->civis, "civis");
-  term_verify_seq(&ret->cnorm, "cnorm");
-  ret->RGBflag = query_rgb();
-  if((ret->colors = tigetnum("colors")) <= 0){
-    ret->colors = 1;
-    ret->CCCflag = false;
-    ret->RGBflag = false;
-    ret->initc = NULL;
-  }else{
-    term_verify_seq(&ret->initc, "initc");
-    if(ret->initc){
-      ret->CCCflag = tigetflag("ccc") == 1;
-    }else{
-      ret->CCCflag = false;
-    }
+  if(interrogate_terminfo(&ret->tcache)){
+    free(ret);
+    return NULL;
   }
   ret->fgdefault = ret->bgdefault = true;
   ret->fgrgb = ret->bgrgb = 0;
@@ -818,16 +636,62 @@ ncdirect* ncdirect_init(const char* termtype, FILE* outfp){
   return ret;
 }
 
-notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
-  notcurses_options defaultopts;
-  memset(&defaultopts, 0, sizeof(defaultopts));
-  if(!opts){
-    opts = &defaultopts;
+// unless the suppress_banner flag was set, print some version information and
+// (if applicable) warnings to stdout. we are not yet on the alternate screen.
+static void
+init_banner(const notcurses* nc){
+  if(!nc->suppress_banner){
+    char prefixbuf[BPREFIXSTRLEN + 1];
+    term_fg_palindex(nc, nc->ttyfp, nc->tcache.colors <= 256 ? 50 % nc->tcache.colors : 0x20e080);
+    printf("\n notcurses %s by nick black et al", notcurses_version());
+    term_fg_palindex(nc, nc->ttyfp, nc->tcache.colors <= 256 ? 12 % nc->tcache.colors : 0x2080e0);
+    printf("\n  %d rows, %d columns (%sB), %d colors (%s)\n"
+           "  compiled with gcc-%s\n"
+           "  terminfo from %s\n",
+           nc->stdscr->leny, nc->stdscr->lenx,
+           bprefix(nc->stats.fbbytes, 1, prefixbuf, 0),
+           nc->tcache.colors, nc->tcache.RGBflag ? "direct" : "palette",
+           __VERSION__, curses_version());
+#ifdef USE_FFMPEG
+    printf("  avformat %u.%u.%u\n  avutil %u.%u.%u\n  swscale %u.%u.%u\n",
+          LIBAVFORMAT_VERSION_MAJOR, LIBAVFORMAT_VERSION_MINOR, LIBAVFORMAT_VERSION_MICRO,
+          LIBAVUTIL_VERSION_MAJOR, LIBAVUTIL_VERSION_MINOR, LIBAVUTIL_VERSION_MICRO,
+          LIBSWSCALE_VERSION_MAJOR, LIBSWSCALE_VERSION_MINOR, LIBSWSCALE_VERSION_MICRO);
+#else
+#ifdef USE_OIIO
+    printf("  openimageio %s\n", oiio_version());
+#else
+    term_fg_palindex(nc, nc->ttyfp, nc->tcache.colors <= 88 ? 1 % nc->tcache.colors : 0xcb);
+    fprintf(stderr, "\n Warning! Notcurses was built without multimedia support.\n");
+#endif
+#endif
+    fflush(stdout);
+    term_fg_palindex(nc, nc->ttyfp, nc->tcache.colors <= 88 ? 1 % nc->tcache.colors : 0xcb);
+    if(!nc->tcache.RGBflag){ // FIXME
+      fprintf(stderr, "\n Warning! Colors subject to https://github.com/dankamongmen/notcurses/issues/4");
+      fprintf(stderr, "\n  Specify a (correct) TrueColor TERM, or COLORTERM=24bit.\n");
+    }else{
+      if(!nc->tcache.CCCflag){
+        fprintf(stderr, "\n Warning! Advertised TrueColor but no 'ccc' flag\n");
+      }
+    }
+    if(!notcurses_canutf8(nc)){
+      fprintf(stderr, "\n Warning! Encoding is not UTF-8.\n");
+    }
   }
-  if(opts->margin_t < 0 || opts->margin_b < 0 || opts->margin_l < 0 || opts->margin_r < 0){
-    fprintf(stderr, "Provided an illegal negative margin, refusing to start\n");
-    return NULL;
-  }
+}
+
+// it's critical that we're in a UTF-8 locale if at all possible. since the
+// client might not have called setlocale(2) (if they weren't reading the
+// directions...), go ahead and try calling it ourselves *iff* we're in the
+// default "C" or "POSIX" locale. this still requires the user to have a proper
+// LANG configured. either way, they're going to get a diagnostic (unless the
+// user has explicitly configured a LANG of "C" or "POSIX"). recommended
+// practice is for the client code to have called setlocale() themselves, and
+// set the NCOPTION_INHIBIT_SETLOCALE flag. if that flag is set, we take the
+// locale as we get it.
+static void
+init_lang(const notcurses_options* opts){
   if(!(opts->flags & NCOPTION_INHIBIT_SETLOCALE)){
     const char* locale = setlocale(LC_ALL, NULL);
     if(locale && (!strcmp(locale, "C") || !strcmp(locale, "POSIX"))){
@@ -847,10 +711,23 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
       }
     }
   }
+}
+
+notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
+  notcurses_options defaultopts;
+  memset(&defaultopts, 0, sizeof(defaultopts));
+  if(!opts){
+    opts = &defaultopts;
+  }
+  if(opts->margin_t < 0 || opts->margin_b < 0 || opts->margin_l < 0 || opts->margin_r < 0){
+    fprintf(stderr, "Provided an illegal negative margin, refusing to start\n");
+    return NULL;
+  }
   notcurses* ret = malloc(sizeof(*ret));
   if(ret == NULL){
     return ret;
   }
+  init_lang(opts);
   const char* encoding = nl_langinfo(CODESET);
   if(encoding && strcmp(encoding, "UTF-8") == 0){
     ret->utf8 = true;
@@ -925,7 +802,8 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
   if(tcsetattr(ret->ttyfd, TCSANOW, &modtermios)){
     fprintf(stderr, "Error disabling echo / canonical on %d (%s)\n",
             ret->ttyfd, strerror(errno));
-    goto err;
+    free(ret);
+    return NULL;
   }
   if(setup_signals(ret, opts->no_quit_sighandlers, opts->no_winch_sighandler)){
     goto err;
@@ -936,9 +814,27 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
     goto err;
   }
   int dimy, dimx;
-  if(interrogate_terminfo(ret, opts, &dimy, &dimx)){
+  update_term_dimensions(ret->ttyfd, &dimy, &dimx);
+  char* shortname_term = termname();
+  char* longname_term = longname();
+  if(!opts->suppress_banner){
+    fprintf(stderr, "Term: %dx%d %s (%s)\n", dimx, dimy,
+            shortname_term ? shortname_term : "?",
+            longname_term ? longname_term : "?");
+  }
+  ret->truecols = dimx;
+  if(interrogate_terminfo(&ret->tcache)){
     goto err;
   }
+  if(prep_special_keys(ret)){
+    goto err;
+  }
+  // Neither of these is supported on e.g. the "linux" virtual console.
+  if(!opts->inhibit_alternate_screen){
+    term_verify_seq(&ret->tcache.smcup, "smcup");
+    term_verify_seq(&ret->tcache.rmcup, "rmcup");
+  }
+  ret->top = ret->stdscr = NULL;
   if(ncvisual_init(ffmpeg_log_level(opts->loglevel))){
     goto err;
   }
@@ -946,12 +842,12 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
     goto err;
   }
   if(!opts->retain_cursor){
-    if(ret->civis && term_emit("civis", ret->civis, ret->ttyfp, false)){
+    if(ret->tcache.civis && term_emit("civis", ret->tcache.civis, ret->ttyfp, false)){
       free_plane(ret->top);
       goto err;
     }
   }
-  if(ret->smkx && term_emit("smkx", ret->smkx, ret->ttyfp, false)){
+  if(ret->tcache.smkx && term_emit("smkx", ret->tcache.smkx, ret->ttyfp, false)){
     free_plane(ret->top);
     goto err;
   }
@@ -960,47 +856,9 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
     goto err;
   }
   ret->suppress_banner = opts->suppress_banner;
-  if(!opts->suppress_banner){
-    char prefixbuf[BPREFIXSTRLEN + 1];
-    term_fg_palindex(ret, ret->ttyfp, ret->colors <= 256 ? 50 % ret->colors : 0x20e080);
-    printf("\n notcurses %s by nick black et al", notcurses_version());
-    term_fg_palindex(ret, ret->ttyfp, ret->colors <= 256 ? 12 % ret->colors : 0x2080e0);
-    printf("\n  %d rows, %d columns (%sB), %d colors (%s)\n"
-          "  compiled with gcc-%s\n"
-          "  terminfo from %s\n",
-          ret->stdscr->leny, ret->stdscr->lenx,
-          bprefix(ret->stats.fbbytes, 1, prefixbuf, 0),
-          ret->colors, ret->RGBflag ? "direct" : "palette",
-          __VERSION__, curses_version());
-#ifdef USE_FFMPEG
-    printf("  avformat %u.%u.%u\n  avutil %u.%u.%u\n  swscale %u.%u.%u\n",
-          LIBAVFORMAT_VERSION_MAJOR, LIBAVFORMAT_VERSION_MINOR, LIBAVFORMAT_VERSION_MICRO,
-          LIBAVUTIL_VERSION_MAJOR, LIBAVUTIL_VERSION_MINOR, LIBAVUTIL_VERSION_MICRO,
-          LIBSWSCALE_VERSION_MAJOR, LIBSWSCALE_VERSION_MINOR, LIBSWSCALE_VERSION_MICRO);
-#else
-#ifdef USE_OIIO
-    printf("  openimageio %s\n", oiio_version());
-#else
-    term_fg_palindex(ret, ret->ttyfp, ret->colors <= 88 ? 1 % ret->colors : 0xcb);
-    fprintf(stderr, "\n Warning! Notcurses was built without multimedia support.\n");
-#endif
-#endif
-    fflush(stdout);
-    term_fg_palindex(ret, ret->ttyfp, ret->colors <= 88 ? 1 % ret->colors : 0xcb);
-    if(!ret->RGBflag){ // FIXME
-      fprintf(stderr, "\n Warning! Colors subject to https://github.com/dankamongmen/notcurses/issues/4");
-      fprintf(stderr, "\n  Specify a (correct) TrueColor TERM, or COLORTERM=24bit.\n");
-    }else{
-      if(!ret->CCCflag){
-        fprintf(stderr, "\n Warning! Advertised TrueColor but no 'ccc' flag\n");
-      }
-    }
-    if(strcmp(encoding, "UTF-8")){ // it definitely exists, but could be ASCII
-      fprintf(stderr, "\n Warning! Encoding is not UTF-8.\n");
-    }
-  }
+  init_banner(ret);
   // flush on the switch to alternate screen, lest initial output be swept away
-  if(ret->smcup && term_emit("smcup", ret->smcup, ret->ttyfp, true)){
+  if(ret->tcache.smcup && term_emit("smcup", ret->tcache.smcup, ret->ttyfp, true)){
     free_plane(ret->top);
     goto err;
   }
@@ -1009,6 +867,7 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
 err:
   // FIXME looks like we have some memory leaks on this error path?
   tcsetattr(ret->ttyfd, TCSANOW, &ret->tpreserved);
+  drop_signals(ret);
   free(ret);
   return NULL;
 }
@@ -1093,6 +952,7 @@ int notcurses_stop(notcurses* nc){
                 (nc->stashstats.cellelisions * 100.0) / (nc->stashstats.cellemissions + nc->stashstats.cellelisions));
       }
     }
+    del_curterm(cur_term);
     free(nc);
   }
   return ret;
@@ -1450,18 +1310,18 @@ int cell_load(ncplane* n, cell* c, const char* gcluster){
 
 unsigned notcurses_supported_styles(const notcurses* nc){
   unsigned styles = 0;
-  styles |= nc->standout ? NCSTYLE_STANDOUT : 0;
-  styles |= nc->uline ? NCSTYLE_UNDERLINE : 0;
-  styles |= nc->reverse ? NCSTYLE_REVERSE : 0;
-  styles |= nc->blink ? NCSTYLE_BLINK : 0;
-  styles |= nc->dim ? NCSTYLE_DIM : 0;
-  styles |= nc->bold ? NCSTYLE_BOLD : 0;
-  styles |= nc->italics ? NCSTYLE_ITALIC : 0;
+  styles |= nc->tcache.standout ? NCSTYLE_STANDOUT : 0;
+  styles |= nc->tcache.uline ? NCSTYLE_UNDERLINE : 0;
+  styles |= nc->tcache.reverse ? NCSTYLE_REVERSE : 0;
+  styles |= nc->tcache.blink ? NCSTYLE_BLINK : 0;
+  styles |= nc->tcache.dim ? NCSTYLE_DIM : 0;
+  styles |= nc->tcache.bold ? NCSTYLE_BOLD : 0;
+  styles |= nc->tcache.italics ? NCSTYLE_ITALIC : 0;
   return styles;
 }
 
 int notcurses_palette_size(const notcurses* nc){
-  return nc->colors;
+  return nc->tcache.colors;
 }
 
 // turn on any specified stylebits
@@ -1826,14 +1686,14 @@ void ncplane_erase(ncplane* n){
 }
 
 void notcurses_cursor_enable(notcurses* nc){
-  if(nc->cnorm){
-    term_emit("cnorm", nc->cnorm, nc->ttyfp, false);
+  if(nc->tcache.cnorm){
+    term_emit("cnorm", nc->tcache.cnorm, nc->ttyfp, false);
   }
 }
 
 void notcurses_cursor_disable(notcurses* nc){
-  if(nc->civis){
-    term_emit("civis", nc->civis, nc->ttyfp, false);
+  if(nc->tcache.civis){
+    term_emit("civis", nc->tcache.civis, nc->ttyfp, false);
   }
 }
 
@@ -1868,15 +1728,15 @@ bool notcurses_canutf8(const notcurses* nc){
 }
 
 bool notcurses_canfade(const notcurses* nc){
-  return nc->CCCflag || nc->RGBflag;
+  return nc->tcache.CCCflag || nc->tcache.RGBflag;
 }
 
 bool notcurses_canchangecolor(const notcurses* nc){
-  if(!nc->CCCflag){
+  if(!nc->tcache.CCCflag){
     return false;
   }
   palette256* p;
-  if((unsigned)nc->colors < sizeof(p->chans) / sizeof(*p->chans)){
+  if((unsigned)nc->tcache.colors < sizeof(p->chans) / sizeof(*p->chans)){
     return false;
   }
   return true;
@@ -2017,21 +1877,6 @@ int notcurses_lex_margins(const char* op, notcurses_options* opts){
 
 int notcurses_inputready_fd(notcurses* n){
   return fileno(n->ttyinfp);
-}
-
-// generate a temporary plane that can hold the contents of n, rotated 90°
-ncplane* rotate_plane(const ncplane* n){
-  int absy, absx;
-  ncplane_yx(n, &absy, &absx);
-  int dimy, dimx;
-  ncplane_dim_yx(n, &dimy, &dimx);
-  if(dimx % 2 != 0){
-    return NULL;
-  }
-  const int newy = dimx / 2;
-  const int newx = dimy * 2;
-  ncplane* newp = ncplane_new(n->nc, newy, newx, absy, absx, n->userptr);
-  return newp;
 }
 
 uint32_t* ncplane_rgba(const ncplane* nc, int begy, int begx, int leny, int lenx){

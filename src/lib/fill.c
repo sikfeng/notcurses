@@ -519,6 +519,22 @@ rotate_merge(ncplane* n, ncplane* newp){
   return ret;
 }
 
+// generate a temporary plane that can hold the contents of n, rotated 90°
+static ncplane*
+rotate_plane(const ncplane* n){
+  int absy, absx;
+  ncplane_yx(n, &absy, &absx);
+  int dimy, dimx;
+  ncplane_dim_yx(n, &dimy, &dimx);
+  if(dimx % 2 != 0){
+    return NULL;
+  }
+  const int newy = dimx / 2;
+  const int newx = dimy * 2;
+  ncplane* newp = ncplane_new(n->nc, newy, newx, absy, absx, n->userptr);
+  return newp;
+}
+
 int ncplane_rotate_cw(ncplane* n){
   ncplane* newp = rotate_plane(n);
   if(newp == NULL){
@@ -526,6 +542,8 @@ int ncplane_rotate_cw(ncplane* n){
   }
   int dimy, dimx;
   ncplane_dim_yx(n, &dimy, &dimx);
+  int centy, centx;
+  ncplane_center_abs(n, &centy, &centx);
   // the topmost row consists of the leftmost two columns. the rightmost column
   // of the topmost row consists of the top half of the top two leftmost cells.
   // the penultimate column of the topmost row consists of the bottom half of
@@ -545,6 +563,11 @@ int ncplane_rotate_cw(ncplane* n){
   }
   int ret = rotate_merge(n, newp);
   ret |= ncplane_destroy(newp);
+  int cent2y, cent2x;
+  int absy, absx;
+  ncplane_center_abs(n, &cent2y, &cent2x);
+  ncplane_yx(n, &absy, &absx);
+  ncplane_move_yx(n, absy + centy - cent2y, absx + centx - cent2x);
   return ret;
 }
 
@@ -555,6 +578,8 @@ int ncplane_rotate_ccw(ncplane* n){
   }
   int dimy, dimx, targdimy, targdimx;
   ncplane_dim_yx(n, &dimy, &dimx);
+  int centy, centx;
+  ncplane_center_abs(n, &centy, &centx);
   ncplane_dim_yx(newp, &targdimy, &targdimx);
   int x = dimx - 2, y;
   // Each row of the target plane is taken from a column of the source plane.
@@ -572,6 +597,11 @@ int ncplane_rotate_ccw(ncplane* n){
   }
   int ret = rotate_merge(n, newp);
   ret |= ncplane_destroy(newp);
+  int cent2y, cent2x;
+  int absy, absx;
+  ncplane_center_abs(n, &cent2y, &cent2x);
+  ncplane_yx(n, &absy, &absx);
+  ncplane_move_yx(n, absy + centy - cent2y, absx + centx - cent2x);
   return ret;
 }
 

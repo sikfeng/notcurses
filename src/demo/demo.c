@@ -460,6 +460,7 @@ int main(int argc, char** argv){
   struct timespec starttime;
   clock_gettime(CLOCK_MONOTONIC, &starttime);
   struct notcurses* nc;
+nopts.flags |= NCOPTION_NO_RENDERTHREADS;
   if((nc = notcurses_init(&nopts, NULL)) == NULL){
     return EXIT_FAILURE;
   }

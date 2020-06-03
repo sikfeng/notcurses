@@ -47,6 +47,7 @@ typedef struct ncreel {
 static inline void
 window_coordinates(ncplane* w, int* begy, int* begx, int* leny, int* lenx){
   ncplane_yx(w, begy, begx);
+  *begx = *begy = 0;
   ncplane_dim_yx(w, leny, lenx);
 }
 
@@ -67,8 +68,6 @@ draw_borders(ncplane* w, unsigned mask, uint64_t channel,
   int begx, begy, lenx, leny;
   int ret = 0;
   window_coordinates(w, &begy, &begx, &leny, &lenx);
-  begx = 0;
-  begy = 0;
   int maxx = begx + lenx - 1;
   int maxy = begy + leny - 1;
   cell ul, ur, ll, lr, hl, vl;
@@ -167,6 +166,7 @@ static int
 tablet_columns(const ncreel* nr, int* begx, int* begy, int* lenx, int* leny,
                int frontiery, int direction){
   window_coordinates(nr->p, begy, begx, leny, lenx);
+fprintf(stderr, "tc: beg: %d/%d len: %d/%d frontier: %d dir: %d\n", *begy, *begx, *leny, *lenx, frontiery, direction);
   int maxy = *leny + *begy - 1;
   int begindraw = *begy + !(nr->ropts.bordermask & NCBOXMASK_TOP);
   int enddraw = maxy - !(nr->ropts.bordermask & NCBOXMASK_TOP);
@@ -219,8 +219,7 @@ tablet_columns(const ncreel* nr, int* begx, int* begy, int* lenx, int* leny,
 // down before displaying it. Destroys any panel if it ought be hidden.
 // Returns 0 if the tablet was able to be wholly rendered, non-zero otherwise.
 static int
-ncreel_draw_tablet(const ncreel* nr, nctablet* t, int frontiery,
-                      int direction){
+ncreel_draw_tablet(const ncreel* nr, nctablet* t, int frontiery, int direction){
   int lenx, leny, begy, begx;
   ncplane* fp = t->p;
   if(tablet_columns(nr, &begx, &begy, &lenx, &leny, frontiery, direction)){
@@ -236,7 +235,7 @@ ncreel_draw_tablet(const ncreel* nr, nctablet* t, int frontiery,
 //fprintf(stderr, "tplacement: %p:%p base %d/%d len %d/%d\n", t, fp, begx, begy, lenx, leny);
 //fprintf(stderr, "DRAWING %p at frontier %d (dir %d) with %d\n", t, frontiery, direction, leny);
   if(fp == NULL){ // create a panel for the tablet
-    t->p = ncplane_new(nr->p->nc, leny + 1, lenx, begy, begx, NULL);
+    t->p = ncplane_bound(nr->p, leny + 1, lenx, begy, begx, NULL);
     if((fp = t->p) == NULL){
       return -1;
     }
@@ -633,7 +632,7 @@ ncreel* ncreel_create(ncplane* w, const ncreel_options* ropts, int efd){
 // ncreel_arrange_denormalized(). this function, and approach, is shit.
 // FIXME get rid of nc param here
 static nctablet*
-insert_new_panel(struct notcurses* nc, ncreel* nr, nctablet* t){
+insert_new_panel(ncreel* nr, nctablet* t){
   if(!nr->all_visible){
     return t;
   }
@@ -647,8 +646,8 @@ insert_new_panel(struct notcurses* nc, ncreel* nr, nctablet* t){
       nr->all_visible = false;
       return t;
     }
-// fprintf(stderr, "newwin: %d/%d + %d/%d\n", begy, begx, leny, lenx);
-    if((t->p = ncplane_new(nc, leny, lenx, begy, begx, NULL)) == NULL){
+fprintf(stderr, "newwin1: %d/%d + %d/%d frontier: %d\n", begy, begx, leny, lenx, frontiery);
+    if((t->p = ncplane_bound(nr->p, leny, lenx, begy, begx, NULL)) == NULL){
       nr->all_visible = false;
       return t;
     }
@@ -659,14 +658,13 @@ insert_new_panel(struct notcurses* nc, ncreel* nr, nctablet* t){
   ncplane_yx(t->prev->p, &frontiery, NULL);
   int dimprevy, dimprevx;
   ncplane_dim_yx(t->prev->p, &dimprevy, &dimprevx);
-  frontiery += dimprevy + 2;
-  frontiery += 2;
+  frontiery += dimprevy;
   if(tablet_columns(nr, &begx, &begy, &lenx, &leny, frontiery, 1)){
     nr->all_visible = false;
     return t;
   }
-// fprintf(stderr, "newwin: %d/%d + %d/%d\n", begy, begx, 2, lenx);
-  if((t->p = ncplane_new(nc, 2, lenx, begy, begx, NULL)) == NULL){
+fprintf(stderr, "newwin2: %d/%d + %d/%d frontier: %d\n", begy, begx, 2, lenx, frontiery);
+  if((t->p = ncplane_bound(nr->p, 2, lenx, begy, begx, NULL)) == NULL){
     nr->all_visible = false;
     return t;
   }
@@ -712,7 +710,7 @@ nctablet* ncreel_add(ncreel* nr, nctablet* after, nctablet *before,
   t->p = NULL;
   // if we have room, it needs become visible immediately, in the proper place,
   // lest we invalidate the preconditions of ncreel_arrange_denormalized().
-  insert_new_panel(nr->p->nc, nr, t);
+  insert_new_panel(nr, t);
   ncreel_redraw(nr); // don't return failure; tablet was still created...
   return t;
 }
@@ -775,48 +773,17 @@ int ncreel_touch(ncreel* nr, nctablet* t){
   return ret;
 }
 
-// Move to some position relative to the current position
-static int
-move_tablet(ncplane* p, int deltax, int deltay){
-  int oldx, oldy;
-  ncplane_yx(p, &oldy, &oldx);
-  int x = oldx + deltax;
-  int y = oldy + deltay;
-  ncplane_move_yx(p, y, x);
-  return 0;
-}
-
 nctablet* ncreel_focused(ncreel* nr){
   return nr->tablets;
 }
 
-int ncreel_move(ncreel* nreel, int x, int y){
+int ncreel_move(ncreel* nreel, int y, int x){
   ncplane* w = nreel->p;
   int oldx, oldy;
   ncplane_yx(w, &oldy, &oldx);
-  const int deltax = x - oldx;
-  const int deltay = y - oldy;
-  if(move_tablet(nreel->p, deltax, deltay)){
-    ncplane_move_yx(nreel->p, oldy, oldx);
+  if(ncplane_move_yx(nreel->p, y, x)){
     ncreel_redraw(nreel);
     return -1;
-  }
-  if(nreel->tablets){
-    nctablet* t = nreel->tablets;
-    do{
-      if(t->p == NULL){
-        break;
-      }
-      move_tablet(t->p, deltax, deltay);
-    }while((t = t->prev) != nreel->tablets);
-    if(t != nreel->tablets){ // don't repeat if we covered all tablets
-      for(t = nreel->tablets->next ; t != nreel->tablets ; t = t->next){
-        if(t->p == NULL){
-          break;
-        }
-        move_tablet(t->p, deltax, deltay);
-      }
-    }
   }
   ncreel_redraw(nreel);
   return 0;

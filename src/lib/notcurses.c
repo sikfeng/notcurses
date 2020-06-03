@@ -283,6 +283,7 @@ ncplane_create(notcurses* nc, ncplane* n, int rows, int cols,
     p->bnext = n->blist;
     n->blist = p;
   }else{
+    p->bound = nc->stdscr;
     p->absx = xoff + nc->margin_l;
     p->absy = yoff + nc->margin_t;
     p->bnext = NULL;
@@ -333,7 +334,7 @@ ncplane* ncplane_bound(ncplane* n, int rows, int cols, int yoff, int xoff, void*
 
 ncplane* ncplane_aligned(ncplane* n, int rows, int cols, int yoff,
                          ncalign_e align, void* opaque){
-  return ncplane_create(n->nc, NULL, rows, cols, yoff, ncplane_align(n, align, cols), opaque);
+  return ncplane_create(n->nc, n, rows, cols, yoff, ncplane_align(n, align, cols), opaque);
 }
 
 inline int ncplane_cursor_move_yx(ncplane* n, int y, int x){
@@ -1671,10 +1672,18 @@ int ncplane_move_yx(ncplane* n, int y, int x){
 
 void ncplane_yx(const ncplane* n, int* y, int* x){
   if(y){
-    *y = n->absy - n->nc->stdscr->absy;
+    if(n->bound == NULL){
+      *y = n->absy - n->nc->stdscr->absy;
+    }else{
+      *y = n->absy - n->bound->absy;
+    }
   }
   if(x){
-    *x = n->absx - n->nc->stdscr->absx;
+    if(n->bound == NULL){
+      *x = n->absx - n->nc->stdscr->absx;
+    }else{
+      *x = n->absx - n->bound->absx;
+    }
   }
 }
 

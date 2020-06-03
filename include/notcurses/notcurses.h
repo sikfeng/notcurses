@@ -2157,8 +2157,7 @@ API void ncvisual_destroy(struct ncvisual* ncv);
 // and NCERR_SUCCESS on success, otherwise some other NCERR.
 API nc_err_e ncvisual_decode(struct ncvisual* nc);
 
-// Rotate the visual 'rads' radians. If we own the bound plane, it is resized
-// to fit the rotated visual, if necessary. Only M_PI/2 and -M_PI/2 are
+// Rotate the visual 'rads' radians. Only M_PI/2 and -M_PI/2 are
 // supported at the moment, but this will change FIXME.
 API nc_err_e ncvisual_rotate(struct ncvisual* n, double rads);
 
@@ -2358,11 +2357,10 @@ API int ncreel_del(struct ncreel* pr, struct nctablet* t);
 // Delete the active tablet. Returns -1 if there are no tablets.
 API int ncreel_del_focused(struct ncreel* pr);
 
-// Move to the specified location within the containing WINDOW.
-API int ncreel_move(struct ncreel* pr, int x, int y);
+// Move to the specified location.
+API int ncreel_move(struct ncreel* pr, int y, int x);
 
-// Redraw the ncreel in its entirety, for instance after
-// clearing the screen due to external corruption, or a SIGWINCH.
+// Redraw the ncreel in its entirety.
 API int ncreel_redraw(struct ncreel* pr);
 
 // Return the focused tablet, if any tablets are present. This is not a copy;

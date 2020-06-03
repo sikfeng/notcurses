@@ -42,12 +42,11 @@ typedef struct ncreel {
   bool all_visible;
 } ncreel;
 
-// Returns the starting coordinates (relative to the screen) of the specified
-// window, and its length. End is (begx + lenx - 1, begy + leny - 1).
+// Returns the starting coordinates (relative to the reel) of the specified
+// tablet, and its length. End is (begx + lenx - 1, begy + leny - 1).
 static inline void
-window_coordinates(ncplane* w, int* begy, int* begx, int* leny, int* lenx){
+tablet_coordinates(ncplane* w, int* begy, int* begx, int* leny, int* lenx){
   ncplane_yx(w, begy, begx);
-  *begx = *begy = 0;
   ncplane_dim_yx(w, leny, lenx);
 }
 
@@ -67,7 +66,8 @@ draw_borders(ncplane* w, unsigned mask, uint64_t channel,
              bool cliphead, bool clipfoot){
   int begx, begy, lenx, leny;
   int ret = 0;
-  window_coordinates(w, &begy, &begx, &leny, &lenx);
+  tablet_coordinates(w, &begy, &begx, &leny, &lenx);
+  begy = begx = 0;
   int maxx = begx + lenx - 1;
   int maxy = begy + leny - 1;
   cell ul, ur, ll, lr, hl, vl;
@@ -144,7 +144,8 @@ static int
 draw_ncreel_borders(const ncreel* nr){
   int begx, begy;
   int maxx, maxy;
-  window_coordinates(nr->p, &begy, &begx, &maxy, &maxx);
+  tablet_coordinates(nr->p, &begy, &begx, &maxy, &maxx);
+  begy = begx = 0;
   assert(maxy >= 0 && maxx >= 0);
   --maxx; // last column we can safely write to
   --maxy; // last line we can safely write to
@@ -165,7 +166,7 @@ draw_ncreel_borders(const ncreel* nr){
 static int
 tablet_columns(const ncreel* nr, int* begx, int* begy, int* lenx, int* leny,
                int frontiery, int direction){
-  window_coordinates(nr->p, begy, begx, leny, lenx);
+  tablet_coordinates(nr->p, begy, begx, leny, lenx);
 fprintf(stderr, "tc: beg: %d/%d len: %d/%d frontier: %d dir: %d\n", *begy, *begx, *leny, *lenx, frontiery, direction);
   int maxy = *leny + *begy - 1;
   int begindraw = *begy + !(nr->ropts.bordermask & NCBOXMASK_TOP);
@@ -222,8 +223,9 @@ static int
 ncreel_draw_tablet(const ncreel* nr, nctablet* t, int frontiery, int direction){
   int lenx, leny, begy, begx;
   ncplane* fp = t->p;
+fprintf(stderr, "DRAW frontier %d direction %d\n", frontiery, direction);
   if(tablet_columns(nr, &begx, &begy, &lenx, &leny, frontiery, direction)){
-//fprintf(stderr, "no room: %p:%p base %d/%d len %d/%d dir %d\n", t, fp, begy, begx, leny, lenx, direction);
+fprintf(stderr, "no room: %p:%p base %d/%d len %d/%d dir %d\n", t, fp, begy, begx, leny, lenx, direction);
 //fprintf(stderr, "FRONTIER DONE!!!!!!\n");
     if(fp){
 //fprintf(stderr, "HIDING %p at frontier %d (dir %d) with %d\n", t, frontiery, direction, leny);
@@ -232,7 +234,7 @@ ncreel_draw_tablet(const ncreel* nr, nctablet* t, int frontiery, int direction){
     }
     return -1;
   }
-//fprintf(stderr, "tplacement: %p:%p base %d/%d len %d/%d\n", t, fp, begx, begy, lenx, leny);
+fprintf(stderr, "tplacement: %p:%p base %d/%d len %d/%d\n", t, fp, begx, begy, lenx, leny);
 //fprintf(stderr, "DRAWING %p at frontier %d (dir %d) with %d\n", t, frontiery, direction, leny);
   if(fp == NULL){ // create a panel for the tablet
     t->p = ncplane_bound(nr->p, leny + 1, lenx, begy, begx, NULL);
@@ -336,7 +338,7 @@ ncreel_draw_tablet(const ncreel* nr, nctablet* t, int frontiery, int direction){
 static int
 draw_focused_tablet(const ncreel* nr){
   int pbegy, pbegx, plenx, pleny; // ncreel window coordinates
-  window_coordinates(nr->p, &pbegy, &pbegx, &pleny, &plenx);
+  tablet_coordinates(nr->p, &pbegy, &pbegx, &pleny, &plenx);
   int fulcrum;
   if(nr->tablets->p == NULL){
     if(nr->last_traveled_direction >= 0){
@@ -381,7 +383,7 @@ draw_following_tablets(const ncreel* nr, const nctablet* otherend){
   do{
 //fprintf(stderr, "following otherend: %p ->p: %p\n", otherend, otherend->p);
     // modify frontier based off the one we're at
-    window_coordinates(working->p, &wbegy, &wbegx, &wleny, &wlenx);
+    tablet_coordinates(working->p, &wbegy, &wbegx, &wleny, &wlenx);
     wmaxy = wbegy + wleny - 1;
     frontiery = wmaxy + 2;
 //fprintf(stderr, "EASTBOUND AND DOWN: %p->%p %d %d\n", working, working->next, frontiery, wmaxy + 2);
@@ -408,14 +410,14 @@ draw_previous_tablets(const ncreel* nr, const nctablet* otherend){
   nctablet* upworking = nr->tablets;
   int frontiery;
   // modify frontier based off the one we're at
-  window_coordinates(upworking->p, &wbegy, &wbegx, &wleny, &wlenx);
+  tablet_coordinates(upworking->p, &wbegy, &wbegx, &wleny, &wlenx);
   frontiery = wbegy - 2;
   while(upworking->prev != otherend || otherend->p == NULL){
 //fprintf(stderr, "MOVIN' ON UP: %p->%p %d %d\n", upworking, upworking->prev, frontiery, wbegy - 2);
     upworking = upworking->prev;
     ncreel_draw_tablet(nr, upworking, frontiery, -1);
     if(upworking->p){
-      window_coordinates(upworking->p, &wbegy, &wbegx, &wleny, &wlenx);
+      tablet_coordinates(upworking->p, &wbegy, &wbegx, &wleny, &wlenx);
 //fprintf(stderr, "new up coords: %d/%d + %d/%d, %d\n", wbegy, wbegx, wleny, wlenx, frontiery);
       frontiery = wbegy - 2;
     }else{
@@ -467,7 +469,8 @@ ncreel_arrange_denormalized(ncreel* nr){
   // direction of movement relative to the old one, of course!
   nctablet* topmost = find_topmost(nr);
   int wbegy, wbegx, wleny, wlenx;
-  window_coordinates(nr->p, &wbegy, &wbegx, &wleny, &wlenx);
+  tablet_coordinates(nr->p, &wbegy, &wbegx, &wleny, &wlenx);
+  wbegy = wbegx = 0;
   int frontiery = wbegy + !(nr->ropts.bordermask & NCBOXMASK_TOP);
   if(nr->last_traveled_direction >= 0){
     ncplane_yx(nr->tablets->prev->p, &fromline, NULL);
@@ -511,16 +514,16 @@ ncreel_arrange_denormalized(ncreel* nr){
 //
 // This can still leave a gap plus a partially-onscreen tablet FIXME
 int ncreel_redraw(ncreel* nr){
-//fprintf(stderr, "--------> BEGIN REDRAW <--------\n");
+fprintf(stderr, "--------> BEGIN REDRAW <--------\n");
   if(draw_ncreel_borders(nr)){
     return -1; // enforces specified dimensional minima
   }
   nctablet* focused = nr->tablets;
   if(focused == NULL){
-//fprintf(stderr, "no focus!\n");
+fprintf(stderr, "no focus!\n");
     return 0; // if none are focused, none exist
   }
-//fprintf(stderr, "focused %p!\n", focused);
+fprintf(stderr, "focused %p!\n", focused);
   // FIXME we special-cased this because i'm dumb and couldn't think of a more
   // elegant way to do this. we keep 'all_visible' as boolean state to avoid
   // having to do an o(n) iteration each round, but this is still grotesque, and
@@ -594,7 +597,7 @@ ncreel* ncreel_create(ncplane* w, const ncreel_options* ropts, int efd){
   nr->last_traveled_direction = -1; // draw down after the initial tablet
   memcpy(&nr->ropts, ropts, sizeof(*ropts));
   int maxx, maxy, wx, wy;
-  window_coordinates(w, &wy, &wx, &maxy, &maxx);
+  tablet_coordinates(w, &wy, &wx, &maxy, &maxx);
   --maxy;
   --maxx;
   int ylen, xlen;
@@ -637,7 +640,8 @@ insert_new_panel(ncreel* nr, nctablet* t){
     return t;
   }
   int wbegy, wbegx, wleny, wlenx; // params of PR
-  window_coordinates(nr->p, &wbegy, &wbegx, &wleny, &wlenx);
+  tablet_coordinates(nr->p, &wbegy, &wbegx, &wleny, &wlenx);
+  wbegy = wbegx = 0;
   // are we the only tablet?
   int begx, begy, lenx, leny, frontiery;
   if(t->prev == t){
@@ -658,7 +662,8 @@ fprintf(stderr, "newwin1: %d/%d + %d/%d frontier: %d\n", begy, begx, leny, lenx,
   ncplane_yx(t->prev->p, &frontiery, NULL);
   int dimprevy, dimprevx;
   ncplane_dim_yx(t->prev->p, &dimprevy, &dimprevx);
-  frontiery += dimprevy;
+  frontiery += dimprevy + 2;
+  frontiery += 2;
   if(tablet_columns(nr, &begx, &begy, &lenx, &leny, frontiery, 1)){
     nr->all_visible = false;
     return t;

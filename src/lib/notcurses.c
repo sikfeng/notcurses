@@ -283,7 +283,6 @@ ncplane_create(notcurses* nc, ncplane* n, int rows, int cols,
     p->bnext = n->blist;
     n->blist = p;
   }else{
-    p->bound = nc->stdscr;
     p->absx = xoff + nc->margin_l;
     p->absy = yoff + nc->margin_t;
     p->bnext = NULL;
@@ -504,6 +503,13 @@ int ncplane_destroy(ncplane* ncp){
     ncp->below->above = ncp->above;
   }else{
     ncp->nc->bottom = ncp->above;
+  }
+  if(ncp->bound){
+    ncplane** prev = &ncp->bound->blist;
+    while(*prev != ncp){
+      prev = &(*prev)->bnext;
+    }
+    *prev = (*prev)->bnext;
   }
   free_plane(ncp);
   return 0;

@@ -778,6 +778,17 @@ int ncreel_touch(ncreel* nr, nctablet* t){
   return ret;
 }
 
+// Move to some position relative to the current position
+static int
+move_tablet(ncplane* p, int deltay, int deltax){
+  int oldx, oldy;
+  ncplane_yx(p, &oldy, &oldx);
+  int x = oldx + deltax;
+  int y = oldy + deltay;
+  ncplane_move_yx(p, y, x);
+  return 0;
+}
+
 nctablet* ncreel_focused(ncreel* nr){
   return nr->tablets;
 }

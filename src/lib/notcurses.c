@@ -806,7 +806,8 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
   ret->lastframe = NULL;
   ret->lfdimy = 0;
   ret->lfdimx = 0;
-  ret->libsixel = false;
+  pthread_mutex_init(&ret->sixellock, NULL);
+  ret->sixel = SIXEL_UNVERIFIED;
   egcpool_init(&ret->pool);
   if(make_nonblocking(ret->ttyinfp)){
     free(ret);
@@ -825,6 +826,8 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
   is_linux_console(ret, !!(opts->flags & NCOPTION_NO_FONT_CHANGES));
   notcurses_mouse_disable(ret);
   if(ret->ttyfd >= 0){
+    // we're not required to have an actual tty fd (and won't, in the case
+    // where we're e.g. daemonized), but some things do require one...
     if(tcgetattr(ret->ttyfd, &ret->tpreserved)){
       logerror(ret, "Couldn't preserve terminal state for %d (%s)\n", ret->ttyfd, strerror(errno));
       free(ret);
@@ -846,11 +849,15 @@ notcurses* notcurses_init(const notcurses_options* opts, FILE* outfp){
         free(ret);
         return NULL;
       }
+      if(opts->flags & NCOPTION_VERIFY_SIXEL){
+        notcurses_cansixel(ret);
+      }
     }
+  }else{
+    ret->sixel = SIXEL_VERIFIED_FALSE;
   }
-  if(setup_signals(ret,
-                   (opts->flags & NCOPTION_NO_QUIT_SIGHANDLERS),
-                   (opts->flags & NCOPTION_NO_WINCH_SIGHANDLER))){
+  if(setup_signals(ret, (opts->flags & NCOPTION_NO_QUIT_SIGHANDLERS),
+                  (opts->flags & NCOPTION_NO_WINCH_SIGHANDLER))){
     goto err;
   }
   int termerr;
@@ -958,6 +965,7 @@ int notcurses_stop(notcurses* nc){
     free(nc->rstate.mstream);
     input_free_esctrie(&nc->inputescapes);
     stash_stats(nc);
+    pthread_mutex_destroy(&nc->sixellock);
     if(!nc->suppress_banner){
       if(nc->stashstats.renders){
         char totalbuf[BPREFIXSTRLEN + 1];
@@ -1928,10 +1936,6 @@ bool notcurses_canchangecolor(const notcurses* nc){
     return false;
   }
   return true;
-}
-
-bool notcurses_cansixel(const notcurses* nc){
-  return nc->libsixel;
 }
 
 palette256* palette256_new(notcurses* nc){

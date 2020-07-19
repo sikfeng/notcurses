@@ -48,8 +48,6 @@ typedef int (*streamcb)(struct notcurses*, struct ncvisual*, void*);
 
 **bool notcurses_canopen_videos(const struct notcurses* nc);**
 
-**bool notcurses_cansixel(const struct notcurses* nc);**
-
 **struct ncvisual* ncvisual_from_file(const char* file, nc_err_e* err);**
 
 **struct ncvisual* ncvisual_from_rgba(const void* rgba, int rows, int rowstride, int cols);**

@@ -24,7 +24,7 @@ The following have been established on a Debian Unstable workstation.
 | Alacritty | `TERM=alacritty` `COLORTERM=24bit` | |
 | Kitty | `TERM=kitty-direct` | |
 | Sakura | `TERM=vte-256color` `COLORTERM=24bit` | No terminfo entry? |
-| mlterm | `TERM=mlterm-256color` | Do not set `COLORTERM`. `mlterm-direct` gives strange results. |
+| mlterm | `TERM=mlterm-256color` | Do not set `COLORTERM`. `mlterm-direct` gives strange results. Sixel support. |
 | st | `TERM=st-256color` `COLORTERM=24bit` | |
 | GNU Screen | `TERM=screen-256colors` | Must be compiled with `--enable-256color`. |
 | tmux | | |

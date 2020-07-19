@@ -326,7 +326,12 @@ typedef struct notcurses {
   bool palette_damage[NCPALETTESIZE];
   struct esctrie* inputescapes; // trie of input escapes -> ncspecial_keys
   bool utf8;      // are we using utf-8 encoding, as hoped?
-  bool libsixel;  // do we have Sixel support?
+  enum {
+    SIXEL_UNVERIFIED,      // we've not yet determined Sixel support
+    SIXEL_VERIFIED_TRUE,   // we've verified Sixel support
+    SIXEL_VERIFIED_FALSE,  // we've verified a lack of Sixel support
+  } sixel;  // do we have Sixel support?
+  pthread_mutex_t sixellock; // have we detected sixel yet?
 } notcurses;
 
 void sigwinch_handler(int signo);
@@ -846,6 +851,14 @@ static inline unsigned
 box_corner_needs(unsigned ctlword){
   return (ctlword & NCBOXCORNER_MASK) >> NCBOXCORNER_SHIFT;
 }
+
+// Can we blit to Sixel? Tests for Sixel support the first time it is called
+// (unless NCOPTION_VERIFY_SIXEL was supplied to notcurses_init(), in which
+// case the test has already been performed). Not const because we take a lock.
+bool notcurses_cansixel(notcurses* nc);
+
+// Requires actively querying the tty. Use with caution.
+int cursor_yx_get(int ttyfd, int* y, int* x);
 
 #ifdef __cplusplus
 }

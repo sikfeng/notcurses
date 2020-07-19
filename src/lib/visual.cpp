@@ -393,7 +393,7 @@ auto ncvisual_render(notcurses* nc, ncvisual* ncv,
   // FIXME also need this check for ncdirect...how?
   if(vopts && vopts->blitter == NCBLIT_SIXEL){
     if(!notcurses_cansixel(nc)){
-      if(!vopts->flags & NCVISUAL_OPTION_NODEGRADE){
+      if(vopts->flags & NCVISUAL_OPTION_NODEGRADE){
         return nullptr;
       }
     }

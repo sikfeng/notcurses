@@ -202,59 +202,71 @@ int cursor_yx_get(int ttyfd, int* y, int* x){
   return 0;
 }
 
+// this escape actually queries a number of capabilties; we ought expose them
+// all, i am thinking.
 static int
 interrogate_sixel(int ttyfd){
   if(ttyfd < 0){
     return -1;
   }
   #define ESCAPESEQ "\x1b[c"
+  #define CAPABILITY_SIXEL 4
   const size_t slen = strlen(ESCAPESEQ);
   ssize_t wlen = write(ttyfd, "\x1B[c", slen);
   if(wlen < 0 || (size_t)wlen != slen){
     return -1;
   }
   bool done = false;
+  bool havesixel = false;
   enum { // what we expect now
-    CURSOR_ESC, // 27 (0x1b)
-    CURSOR_LSQUARE,
-    CURSOR_ROW, // delimited by a semicolon
-    CURSOR_COLUMN,
-    CURSOR_R,
-  } state = CURSOR_ESC;
-  int row = 0, column = 0;
+    CAPS_ESC, // 27 (0x1b)
+    CAPS_LSQUARE,
+    CAPS_QMARK, // 63
+    CAPS_DIGITS, // delimited by a semicolon
+    CAPS_MUSTDIGIT, // just had semicolon
+    CAPS_C,
+  } state = CAPS_ESC;
+  int capid = 0;
   char in;
-  while(read(ttyfd, &in, 1) == 1){
+  ssize_t r;
+  while((r = read(ttyfd, &in, 1)) == 1 || (r < 0 && errno == EAGAIN)){
+    if(r < 0 && errno == EAGAIN){
+      continue;
+    }
     bool valid = false;
     switch(state){
-      case CURSOR_ESC: valid = (in == '\x1b'); state = CURSOR_LSQUARE; break;
-      case CURSOR_LSQUARE: valid = (in == '['); state = CURSOR_ROW; break;
-      case CURSOR_ROW:
+      case CAPS_ESC: valid = (in == '\x1b'); state = CAPS_LSQUARE; break;
+      case CAPS_LSQUARE: valid = (in == '['); state = CAPS_QMARK; break;
+      case CAPS_QMARK: valid = (in == '?'); state = CAPS_DIGITS; break;
+      case CAPS_DIGITS: case CAPS_MUSTDIGIT:
         if(isdigit(in)){
-          row *= 10;
-          row += in - '0';
+          capid *= 10;
+          capid += in - '0';
           valid = true;
+          state = CAPS_DIGITS;
         }else if(in == ';'){
-          state = CURSOR_COLUMN;
+          if(state == CAPS_MUSTDIGIT){
+            break;
+          }
+//fprintf(stderr, "capid: %d\n", capid);
+          if(capid == CAPABILITY_SIXEL){
+            havesixel = true;
+          }
+          capid = 0;
+          valid = true;
+          state = CAPS_MUSTDIGIT;
+        }else if(in == 'c'){
+          state = CAPS_C;
           valid = true;
         }
         break;
-      case CURSOR_COLUMN:
-        if(isdigit(in)){
-          column *= 10;
-          column += in - '0';
-          valid = true;
-        }else if(in == 'R'){
-          state = CURSOR_R;
-          valid = true;
-        }
-        break;
-      case CURSOR_R: default: // logical error, whoops
+      case CAPS_C: default: // logical error, whoops
         break;
     }
     if(!valid){
       break;
     }
-    if(state == CURSOR_R){
+    if(state == CAPS_C){
       done = true;
       break;
     }
@@ -262,7 +274,11 @@ interrogate_sixel(int ttyfd){
   if(!done){
     return -1;
   }
+  if(!havesixel){
+    return -1;
+  }
   return 0;
+  #undef CAPABILITY_SIXEL
   #undef ESCAPESEQ
 }
 

@@ -34,6 +34,7 @@ int main(int argc, char** argv){
   }
   struct ncvisual_options vopts = {
     .blitter = NCBLIT_SIXEL,
+    .flags = NCVISUAL_OPTION_NODEGRADE,
   };
   bool failed = false;
   nc_err_e ncerr;

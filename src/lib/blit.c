@@ -476,6 +476,28 @@ braille_blit(ncplane* nc, int placey, int placex, int linesize,
   return total;
 }
 
+static inline int
+sixel_blit(ncplane* nc, int placey, int placex, int linesize,
+           const void* data, int begy, int begx,
+           int leny, int lenx, bool bgr, bool blendcolors){
+  int dimy, dimx, x, y;
+  int total = 0; // number of cells written
+  ncplane_dim_yx(nc, &dimy, &dimx);
+  // FIXME not going to necessarily be safe on all architectures hrmmm
+  const unsigned char* dat = data;
+  int visy = begy;
+  for(y = placey ; visy < (begy + leny) && y < dimy ; ++y, visy += 6){
+    if(ncplane_cursor_move_yx(nc, y, placex)){
+      return -1;
+    }
+    int visx = begx;
+    for(x = placex ; visx < (begx + lenx) && x < dimx ; ++x, ++visx){
+    }
+    ++total;
+  }
+  return total;
+}
+
 // NCBLIT_DEFAULT is not included, as it has no defined properties. It ought
 // be replaced with some real blitter implementation by the calling widget.
 const struct blitset notcurses_blitters[] = {
@@ -494,7 +516,7 @@ const struct blitset notcurses_blitters[] = {
    { .geom = NCBLIT_BRAILLE, .width = 2, .height = 4, .egcs = L"⠀⡀⡄⡆⡇⢀⣀⣄⣆⣇⢠⣠⣤⣦⣧⢰⣰⣴⣶⣷⢸⣸⣼⣾⣿",
      .blit = braille_blit,   .fill = true,  },
    { .geom = NCBLIT_SIXEL,   .width = 1, .height = 6, .egcs = L"",
-     .blit = tria_blit,      .fill = true,  },
+     .blit = sixel_blit,     .fill = true,  },
    { .geom = 0,              .width = 0, .height = 0, .egcs = NULL,
      .blit = NULL,           .fill = false,  },
 };

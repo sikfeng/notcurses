@@ -61,9 +61,6 @@ rgba_blitter_low(bool utf8, ncscale_e scale, bool maydegrade, ncblitter_e blitre
   }else{
     bset = lookup_blitset(utf8, ncvisual_default_blitter(utf8, scale), maydegrade);
   }
-  if(bset && !bset->blit){ // FIXME remove this once all blitters are enabled
-    bset = NULL;
-  }
   return bset;
 }
 

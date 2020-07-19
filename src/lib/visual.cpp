@@ -390,6 +390,14 @@ auto ncvisual_render(notcurses* nc, ncvisual* ncv,
   if(begx + lenx > ncv->cols || begy + leny > ncv->rows){
     return nullptr;
   }
+  // FIXME also need this check for ncdirect...how?
+  if(vopts && vopts->blitter == NCBLIT_SIXEL){
+    if(!notcurses_cansixel(nc)){
+      if(!vopts->flags & NCVISUAL_OPTION_NODEGRADE){
+        return nullptr;
+      }
+    }
+  }
   auto bset = rgba_blitter(nc, vopts);
   if(!bset){
     return nullptr;

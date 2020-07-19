@@ -492,8 +492,8 @@ sixel_blit(ncplane* nc, int placey, int placex, int linesize,
     }
     int visx = begx;
     for(x = placex ; visx < (begx + lenx) && x < dimx ; ++x, ++visx){
+      // FIXME FIXME FIXME
     }
-    ++total;
   }
   return total;
 }

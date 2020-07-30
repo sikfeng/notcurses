@@ -722,10 +722,11 @@ cell_wide_left_p(const cell* c){
   return cell_double_wide_p(c) && c->gcluster;
 }
 
-// Is the cell simple (a lone ASCII character, encoded as such)?
+// Is the EGC inlined? All are save multi-character EGCs, which are represented
+// with a 0x1 followed by a 24-bit index.
 static inline bool
 cell_simple_p(const cell* c){
-  return c->gcluster < 0x80;
+  return (c->gcluster & 0xff) != 0x1;
 }
 
 // return a pointer to the NUL-terminated EGC referenced by 'c'. this pointer
@@ -798,7 +799,7 @@ cell_load_simple(struct ncplane* n, cell* c, char ch){
 // unsafe results if called on a simple cell.
 static inline uint32_t
 cell_egc_idx(const cell* c){
-  return c->gcluster - 0x80;
+  return (c->gcluster >> 8u);
 }
 
 // These log levels consciously map cleanly to those of libav; notcurses itself

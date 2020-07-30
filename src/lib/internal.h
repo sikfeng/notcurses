@@ -401,9 +401,9 @@ static inline char*
 pool_egc_copy(const egcpool* e, const cell* c){
   char* ret;
   if(cell_simple_p(c)){
-    if( (ret = (char*)malloc(2)) ){
-      ret[0] = c->gcluster;
-      ret[1] = '\0';
+    if( (ret = (char*)malloc(5)) ){
+      memcpy(ret, &c->gcluster, 4);
+      ret[4] = '\0';
     }
   }else{
     ret = strdup(egcpool_extended_gcluster(e, c));
@@ -575,8 +575,8 @@ ns_to_timespec(uint64_t ns, struct timespec* ts){
 static inline void
 cell_debug(const egcpool* p, const cell* c){
 	if(cell_simple_p(c)){
-		fprintf(stderr, "gcluster: %u %c attr: 0x%08x chan: 0x%016jx\n",
-				    c->gcluster, c->gcluster, c->attrword, c->channels);
+		fprintf(stderr, "gcluster: %u %.4s attr: 0x%08x chan: 0x%016jx\n",
+				    c->gcluster, (const char*)&c->gcluster, c->attrword, c->channels);
 	}else{
 		fprintf(stderr, "gcluster: %u %s attr: 0x%08x chan: 0x%016jx\n",
 				    c->gcluster, egcpool_extended_gcluster(p, c), c->attrword, c->channels);
@@ -607,7 +607,8 @@ pool_release(egcpool* pool, cell* c){
   c->gcluster = 0; // don't subject ourselves to double-release problems
 }
 
-// Duplicate one cell onto another, possibly crossing ncplanes.
+// Duplicate one cell onto another, possibly crossing ncplanes. Return the
+// number of bytes
 static inline int
 cell_duplicate_far(egcpool* tpool, cell* targ, const ncplane* splane, const cell* c){
   pool_release(tpool, targ);
@@ -615,7 +616,7 @@ cell_duplicate_far(egcpool* tpool, cell* targ, const ncplane* splane, const cell
   targ->channels = c->channels;
   if(cell_simple_p(c)){
     targ->gcluster = c->gcluster;
-    return !!c->gcluster;
+    return strnlen((const char*)&c->gcluster, 4);
   }
   assert(splane);
   const char* egc = extended_gcluster(splane, c);
@@ -624,7 +625,7 @@ cell_duplicate_far(egcpool* tpool, cell* targ, const ncplane* splane, const cell
   if(eoffset < 0){
     return -1;
   }
-  targ->gcluster = eoffset + 0x80;
+  targ->gcluster = (eoffset << 8u) + 1;
   return ulen;
 }
 

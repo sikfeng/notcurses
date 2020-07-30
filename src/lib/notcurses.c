@@ -1312,21 +1312,20 @@ int ncplane_putc_yx(ncplane* n, int y, int x, const cell* c){
 
 static inline int
 cell_load_direct(ncplane* n, cell* c, const char* gcluster, int bytes, int cols){
-  if(bytes >= 0 && cols >= 0 && bytes <= 1){
+  if(bytes < 0 || cols < 0){
+    return -1;
+  }
+  if(bytes <= 4){
     cell_release(n, c);
     c->channels &= ~CELL_WIDEASIAN_MASK;
-    c->gcluster = *gcluster;
-    return !!c->gcluster;
-  }
-  if(bytes < 0){
-    return -1;
+    c->gcluster = 0;
+    memcpy(&c->gcluster, gcluster, bytes);
+    return bytes;
   }
   if(cols > 1){
     c->channels |= CELL_WIDEASIAN_MASK;
-  }else if(cols >= 0){
-    c->channels &= ~CELL_WIDEASIAN_MASK;
   }else{
-    return -1;
+    c->channels &= ~CELL_WIDEASIAN_MASK;
   }
   if(!cell_simple_p(c)){
     if(strcmp(gcluster, cell_extended_gcluster(n, c)) == 0){
@@ -1339,7 +1338,7 @@ cell_load_direct(ncplane* n, cell* c, const char* gcluster, int bytes, int cols)
   if(eoffset < 0){
     return -1;
   }
-  c->gcluster = eoffset + 0x80;
+  c->gcluster = (eoffset << 8u) + 1;
   return bytes;
 }
 

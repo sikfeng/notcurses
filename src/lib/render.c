@@ -495,14 +495,14 @@ ncfputc(char c, FILE* out){
 static int
 term_putc(FILE* out, const egcpool* e, const cell* c){
   if(cell_simple_p(c)){
-    if(c->gcluster == 0 || iscntrl(c->gcluster)){
+    if(c->gcluster < ' '){ // all control characters
 // fprintf(stderr, "[ ]\n");
       if(ncfputc(' ', out) == EOF){
         return -1;
       }
     }else{
 //fprintf(stderr, "[%c]\n", c->gcluster);
-      if(ncfputc(c->gcluster, out) == EOF){
+      if(fprintf(out, "%.4s", (const char*)&c->gcluster) == EOF){
         return -1;
       }
     }
